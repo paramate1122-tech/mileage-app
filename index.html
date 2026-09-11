@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="สมุดไมล์">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#12141a">
+<title>สมุดไมล์รถ</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2312141a'/%3E%3Ctext x='50' y='62' font-size='48' text-anchor='middle' fill='%23ffb020' font-family='monospace'%3E0%3C/text%3E%3C/svg%3E">
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1116;
+    --panel:#171a21;
+    --panel-2:#1d212a;
+    --line:#2a2f3a;
+    --text:#eef0f4;
+    --muted:#8b93a3;
+    --amber:#ffb238;
+    --amber-dim:#7a5a1e;
+    --teal:#59d3a8;
+    --red:#ff6b6b;
+    --mono: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--sans); }
+  body{
+    padding-bottom:calc(40px + env(safe-area-inset-bottom));
+    padding-top:env(safe-area-inset-top);
+  }
+  .wrap{ max-width:480px; margin:0 auto; padding:18px 16px 0; }
+
+  header.top{ padding:6px 4px 18px; }
+  header.top .odo{ font-family:var(--mono); font-size:13px; letter-spacing:.12em; color:var(--muted); }
+  header.top h1{ margin:2px 0 0; font-size:26px; font-weight:600; letter-spacing:-0.02em; }
+  header.top .dash-line{ margin-top:14px; height:2px; background:linear-gradient(90deg,var(--amber),transparent 70%); border-radius:2px; }
+
+  .datebar{ display:flex; align-items:center; justify-content:space-between; margin:18px 0 14px; }
+  .datebar select{
+    background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:10px;
+    padding:9px 12px; font-family:var(--mono); font-size:14px;
+  }
+  .datebar .today-badge{ font-size:12px; color:var(--teal); font-family:var(--mono); }
+
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; margin-bottom:14px; }
+  .card h2{ margin:0 0 12px; font-size:13px; font-weight:600; letter-spacing:.04em; color:var(--muted); text-transform:none; }
+
+  .odo-row{ display:flex; gap:10px; align-items:stretch; }
+  .odo-input-col{ flex:1; display:flex; flex-direction:column; gap:8px; }
+  .odo-input-col label{ font-size:12px; color:var(--muted); }
+  .odo-input-col input[type=number]{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    color:var(--amber); font-family:var(--mono); font-size:28px; padding:8px 10px;
+  }
+  .odo-input-col input[type=number]::placeholder{ color:#4a4f5c; }
+
+  .photo-slot{ width:92px; flex-shrink:0; }
+  .photo-btn{
+    width:92px; height:92px; border-radius:12px; border:1.5px dashed var(--line);
+    background:var(--panel-2); display:flex; align-items:center; justify-content:center;
+    overflow:hidden; position:relative; cursor:pointer;
+  }
+  .photo-btn img{ width:100%; height:100%; object-fit:cover; }
+  .photo-btn .plus{ color:var(--muted); font-size:26px; font-weight:300; }
+  .photo-btn input{ position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .photo-caption{ text-align:center; font-size:11px; color:var(--muted); margin-top:6px; }
+
+  .pair{ display:flex; gap:16px; }
+  .pair > div{ flex:1; }
+
+  .divider{ height:1px; background:var(--line); margin:16px 0; }
+
+  .stat-row{ display:flex; justify-content:space-between; align-items:baseline; padding:2px 0; }
+  .stat-row .label{ font-size:13px; color:var(--muted); }
+  .stat-row .value{ font-family:var(--mono); font-size:17px; }
+  .stat-row .value.amber{ color:var(--amber); }
+  .stat-row .value.teal{ color:var(--teal); }
+
+  .btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; padding:14px; border-radius:12px; border:none;
+    font-size:15px; font-weight:600; font-family:var(--sans); cursor:pointer;
+  }
+  .btn-primary{ background:var(--amber); color:#1a1204; }
+  .btn-ghost{ background:var(--panel-2); color:var(--text); border:1px solid var(--line); }
+  .btn-teal{ background:var(--teal); color:#062018; }
+  .btn-sm{ padding:9px 12px; font-size:13px; width:auto; }
+  .btn:disabled{ opacity:.4; }
+  .btn-row{ display:flex; gap:10px; }
+
+  .points-count{ font-family:var(--mono); color:var(--teal); font-size:13px; margin-top:8px; }
+  .gps-live{ font-size:11.5px; color:var(--muted); margin-top:4px; min-height:14px; }
+
+  .history-item{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px 4px; border-bottom:1px solid var(--line);
+  }
+  .history-item:last-child{ border-bottom:none; }
+  .history-item .d{ font-size:14px; }
+  .history-item .d .dist{ font-family:var(--mono); color:var(--amber); font-size:13px; display:block; margin-top:2px; }
+  .history-item .actions{ display:flex; gap:8px; }
+  .icon-btn{ background:none; border:none; color:var(--muted); font-size:18px; padding:4px 6px; cursor:pointer; }
+  .icon-btn.del{ color:var(--red); }
+
+  .footer-actions{ display:flex; flex-direction:column; gap:10px; margin-top:6px; }
+  .footer-actions .btn-row{ gap:10px; }
+  .hint{ font-size:11.5px; color:var(--muted); line-height:1.5; margin-top:10px; }
+
+  .empty{ font-size:13px; color:var(--muted); text-align:center; padding:20px 0; }
+
+  dialog{ border:none; border-radius:16px; background:var(--panel); color:var(--text); padding:0; max-width:340px; width:88vw; }
+  dialog::backdrop{ background:rgba(0,0,0,.6); }
+  .dlg-body{ padding:20px; }
+  .dlg-body h3{ margin:0 0 10px; font-size:16px; }
+  .dlg-body p{ font-size:13.5px; color:var(--muted); line-height:1.55; }
+  .dlg-body .btn{ margin-top:14px; }
+
+  ::-webkit-scrollbar{ display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="odo">TRIP LOGGER</div>
+    <h1>สมุดไมล์รถ</h1>
+    <div class="dash-line"></div>
+  </header>
+
+  <div class="datebar">
+    <select id="dateSelect"></select>
+    <span class="today-badge" id="todayBadge"></span>
+  </div>
+
+  <!-- ODOMETER CARD -->
+  <div class="card">
+    <h2>ไมล์รถ</h2>
+    <div class="pair">
+      <div>
+        <div class="odo-row">
+          <div class="odo-input-col">
+            <label>เริ่มวัน (กม.)</label>
+            <input type="number" inputmode="numeric" id="startKm" placeholder="0">
+          </div>
+          <div class="photo-slot">
+            <div class="photo-btn" id="startPhotoBtn">
+              <span class="plus" id="startPlus">＋</span>
+              <img id="startImg" style="display:none">
+              <input type="file" accept="image/*" capture="environment" id="startFile">
+            </div>
+            <div class="photo-caption">ถ่ายไมล์</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="pair">
+      <div>
+        <div class="odo-row">
+          <div class="odo-input-col">
+            <label>จบวัน (กม.)</label>
+            <input type="number" inputmode="numeric" id="endKm" placeholder="0">
+          </div>
+          <div class="photo-slot">
+            <div class="photo-btn" id="endPhotoBtn">
+              <span class="plus" id="endPlus">＋</span>
+              <img id="endImg" style="display:none">
+              <input type="file" accept="image/*" capture="environment" id="endFile">
+            </div>
+            <div class="photo-caption">ถ่ายไมล์</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="stat-row"><span class="label">ระยะทางวันนี้</span><span class="value amber" id="distToday">—</span></div>
+    <div class="stat-row"><span class="label">ค่าเสื่อม (กม. × 1.2 × 5)</span><span class="value teal" id="costToday">—</span></div>
+  </div>
+
+  <!-- ROUTE CARD -->
+  <div class="card">
+    <h2>เส้นทางการเดินทาง</h2>
+    <button class="btn btn-primary" id="recordBtn">📍 บันทึกตำแหน่งตอนนี้</button>
+    <div class="points-count" id="pointsCount">ยังไม่มีจุดที่บันทึก</div>
+    <div class="gps-live" id="gpsLive"></div>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn btn-ghost btn-sm" id="viewRouteBtn" style="flex:1;">เปิดเส้นทางใน Google Maps</button>
+      <button class="btn btn-ghost btn-sm" id="clearPointsBtn">ล้างจุด</button>
+    </div>
+    <div class="hint">กดปุ่มบันทึกตำแหน่งทุกครั้งที่แวะจุดสำคัญระหว่างทาง (เช่น ออกจากบ้าน, จุดแวะ, ปลายทาง) แอปจะรวมจุดทั้งหมดเป็นลิงก์เส้นทางใน Google Maps โดยไม่มีค่าใช้จ่าย</div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="card">
+    <h2>ประวัติทั้งหมด</h2>
+    <div id="historyList"></div>
+  </div>
+
+  <!-- EXPORT -->
+  <div class="card">
+    <h2>ส่งออกข้อมูล</h2>
+    <div class="footer-actions">
+      <select id="monthSelect"></select>
+      <button class="btn btn-teal" id="exportExcelBtn">📊 ส่งออกเป็น Excel (.xlsx)</button>
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-sm" id="backupBtn" style="flex:1;">สำรองข้อมูล (JSON)</button>
+        <button class="btn btn-ghost btn-sm" id="restoreBtnLabel" style="flex:1;">
+          กู้คืนข้อมูล
+          <input type="file" accept="application/json" id="restoreFile" style="display:none">
+        </button>
+      </div>
+    </div>
+    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
+  </div>
+
+</div>
+
+<dialog id="msgDlg">
+  <div class="dlg-body">
+    <h3 id="msgTitle">แจ้งเตือน</h3>
+    <p id="msgBody"></p>
+    <button class="btn btn-primary" id="msgOk">ตกลง</button>
+  </div>
+</dialog>
+
+<script>
+const STORAGE_KEY = 'mileage-log-v1';
+let db = loadDB();
+let currentDate = todayStr();
+
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function loadDB(){
+  try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {days:{}}; }
+  catch(e){ return {days:{}}; }
+}
+function saveDB(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+function dayRec(dateStr){
+  if(!db.days[dateStr]) db.days[dateStr] = {startKm:null,endKm:null,startPhoto:null,endPhoto:null,points:[]};
+  return db.days[dateStr];
+}
+function fmtDateTH(dateStr){
+  const [y,m,d] = dateStr.split('-');
+  const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  return `${parseInt(d)} ${months[parseInt(m)-1]} ${parseInt(y)+543}`;
+}
+function dlg(title, body){
+  document.getElementById('msgTitle').textContent = title;
+  document.getElementById('msgBody').textContent = body;
+  document.getElementById('msgDlg').showModal();
+}
+document.getElementById('msgOk').onclick = () => document.getElementById('msgDlg').close();
+
+// ---------- date selector ----------
+function refreshDateSelect(){
+  const sel = document.getElementById('dateSelect');
+  const dates = new Set(Object.keys(db.days));
+  dates.add(todayStr());
+  dates.add(currentDate);
+  const sorted = Array.from(dates).sort().reverse();
+  sel.innerHTML = sorted.map(d => `<option value="${d}" ${d===currentDate?'selected':''}>${fmtDateTH(d)}</option>`).join('');
+  document.getElementById('todayBadge').textContent = currentDate === todayStr() ? 'วันนี้' : '';
+}
+document.getElementById('dateSelect').addEventListener('change', e=>{
+  currentDate = e.target.value;
+  loadDayIntoForm();
+});
+
+// เพิ่มวันนี้เข้า selector เสมอถ้ายังไม่มี
+(function ensureToday(){
+  if(!db.days[todayStr()]) dayRec(todayStr());
+})();
+
+// ---------- form <-> data ----------
+function loadDayIntoForm(){
+  const rec = dayRec(currentDate);
+  document.getElementById('startKm').value = rec.startKm ?? '';
+  document.getElementById('endKm').value = rec.endKm ?? '';
+  setPhotoPreview('start', rec.startPhoto);
+  setPhotoPreview('end', rec.endPhoto);
+  updateStats();
+  updatePointsUI();
+  refreshDateSelect();
+}
+function setPhotoPreview(which, dataUrl){
+  const img = document.getElementById(which+'Img');
+  const plus = document.getElementById(which+'Plus');
+  if(dataUrl){ img.src = dataUrl; img.style.display='block'; plus.style.display='none'; }
+  else{ img.style.display='none'; plus.style.display='block'; }
+}
+function updateStats(){
+  const rec = dayRec(currentDate);
+  const s = parseFloat(rec.startKm), e = parseFloat(rec.endKm);
+  if(!isNaN(s) && !isNaN(e) && e >= s){
+    const dist = e - s;
+    const cost = dist * 1.2 * 5;
+    document.getElementById('distToday').textContent = dist.toLocaleString(undefined,{maximumFractionDigits:1}) + ' กม.';
+    document.getElementById('costToday').textContent = cost.toLocaleString(undefined,{maximumFractionDigits:2}) + ' บาท';
+  } else {
+    document.getElementById('distToday').textContent = '—';
+    document.getElementById('costToday').textContent = '—';
+  }
+}
+function updatePointsUI(){
+  const rec = dayRec(currentDate);
+  const n = rec.points.length;
+  document.getElementById('pointsCount').textContent = n === 0 ? 'ยังไม่มีจุดที่บันทึก' : `บันทึกแล้ว ${n} จุด`;
+  document.getElementById('viewRouteBtn').disabled = n < 1;
+}
+
+['start','end'].forEach(which=>{
+  document.getElementById(which+'Km').addEventListener('input', e=>{
+    dayRec(currentDate)[which+'Km'] = e.target.value === '' ? null : parseFloat(e.target.value);
+    saveDB(); updateStats();
+  });
+  document.getElementById(which+'File').addEventListener('change', e=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      // resize/compress via canvas to keep storage small
+      const img = new Image();
+      img.onload = ()=>{
+        const maxW = 800;
+        const scale = Math.min(1, maxW/img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width*scale;
+        canvas.height = img.height*scale;
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        const compressed = canvas.toDataURL('image/jpeg', 0.7);
+        dayRec(currentDate)[which+'Photo'] = compressed;
+        saveDB();
+        setPhotoPreview(which, compressed);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+});
+
+// ---------- geolocation ----------
+document.getElementById('recordBtn').addEventListener('click', ()=>{
+  const live = document.getElementById('gpsLive');
+  if(!navigator.geolocation){ dlg('ไม่รองรับ', 'อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง'); return; }
+  live.textContent = 'กำลังค้นหาตำแหน่ง…';
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const rec = dayRec(currentDate);
+    rec.points.push({lat:pos.coords.latitude, lng:pos.coords.longitude, t:Date.now()});
+    saveDB();
+    updatePointsUI();
+    live.textContent = `บันทึกจุดล่าสุด: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+  }, err=>{
+    live.textContent = '';
+    dlg('บันทึกตำแหน่งไม่สำเร็จ', 'กรุณาอนุญาตการเข้าถึงตำแหน่งใน Safari ที่ตั้งค่า > ความเป็นส่วนตัว > บริการหาตำแหน่ง');
+  }, {enableHighAccuracy:true, timeout:15000});
+});
+
+document.getElementById('clearPointsBtn').addEventListener('click', ()=>{
+  dayRec(currentDate).points = [];
+  saveDB(); updatePointsUI();
+  document.getElementById('gpsLive').textContent = '';
+});
+
+document.getElementById('viewRouteBtn').addEventListener('click', ()=>{
+  const pts = dayRec(currentDate).points;
+  if(pts.length < 1) return;
+  let url;
+  if(pts.length === 1){
+    url = `https://www.google.com/maps/search/?api=1&query=${pts[0].lat},${pts[0].lng}`;
+  } else {
+    const origin = `${pts[0].lat},${pts[0].lng}`;
+    const dest = `${pts[pts.length-1].lat},${pts[pts.length-1].lng}`;
+    const mid = pts.slice(1,-1).slice(0,8).map(p=>`${p.lat},${p.lng}`).join('|');
+    url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}` + (mid ? `&waypoints=${mid}` : '') + `&travelmode=driving`;
+  }
+  window.open(url, '_blank');
+});
+
+// ---------- history ----------
+function renderHistory(){
+  const list = document.getElementById('historyList');
+  const dates = Object.keys(db.days).sort().reverse();
+  if(dates.length===0){ list.innerHTML = '<div class="empty">ยังไม่มีข้อมูล</div>'; return; }
+  list.innerHTML = dates.map(d=>{
+    const r = db.days[d];
+    let distTxt = '—';
+    if(r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm){
+      distTxt = (r.endKm-r.startKm).toLocaleString(undefined,{maximumFractionDigits:1})+' กม.';
+    }
+    return `<div class="history-item">
+      <div class="d">${fmtDateTH(d)}<span class="dist">${distTxt}</span></div>
+      <div class="actions">
+        <button class="icon-btn" data-open="${d}">✎</button>
+        <button class="icon-btn del" data-del="${d}">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{
+    currentDate = b.dataset.open;
+    loadDayIntoForm();
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+  list.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+    if(confirm('ลบข้อมูลวันที่ '+fmtDateTH(b.dataset.del)+' ?')){
+      delete db.days[b.dataset.del];
+      saveDB(); renderHistory(); refreshDateSelect();
+      if(currentDate === b.dataset.del){ currentDate = todayStr(); loadDayIntoForm(); }
+    }
+  });
+}
+
+// ---------- export excel ----------
+function refreshMonthSelect(){
+  const sel = document.getElementById('monthSelect');
+  const months = new Set(Object.keys(db.days).map(d=>d.slice(0,7)));
+  months.add(todayStr().slice(0,7));
+  const sorted = Array.from(months).sort().reverse();
+  sel.innerHTML = sorted.map(m=>{
+    const [y,mo] = m.split('-');
+    const names=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+    return `<option value="${m}">${names[parseInt(mo)-1]} ${parseInt(y)+543}</option>`;
+  }).join('');
+}
+document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
+  const month = document.getElementById('monthSelect').value;
+  const rows = Object.keys(db.days).filter(d=>d.startsWith(month)).sort().map(d=>{
+    const r = db.days[d];
+    const dist = (r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm) ? (r.endKm-r.startKm) : '';
+    const cost = dist!=='' ? dist*1.2*5 : '';
+    return {
+      'วันที่': fmtDateTH(d),
+      'ไมล์เริ่มต้น (กม.)': r.startKm ?? '',
+      'ไมล์สิ้นสุด (กม.)': r.endKm ?? '',
+      'ระยะทาง (กม.)': dist,
+      'ค่าเสื่อม (บาท)': cost,
+      'จำนวนจุดที่บันทึก': r.points.length
+    };
+  });
+  if(rows.length===0){ dlg('ไม่มีข้อมูล', 'ไม่พบข้อมูลในเดือนที่เลือก'); return; }
+  const totalDist = rows.reduce((s,r)=>s + (typeof r['ระยะทาง (กม.)']==='number'? r['ระยะทาง (กม.)']:0),0);
+  const totalCost = rows.reduce((s,r)=>s + (typeof r['ค่าเสื่อม (บาท)']==='number'? r['ค่าเสื่อม (บาท)']:0),0);
+  rows.push({'วันที่':'รวม','ไมล์เริ่มต้น (กม.)':'','ไมล์สิ้นสุด (กม.)':'','ระยะทาง (กม.)':totalDist,'ค่าเสื่อม (บาท)':totalCost,'จำนวนจุดที่บันทึก':''});
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:16},{wch:16},{wch:16},{wch:14},{wch:14},{wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'สรุปไมล์');
+  XLSX.writeFile(wb, `mileage-${month}.xlsx`);
+});
+
+// ---------- backup / restore ----------
+document.getElementById('backupBtn').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(db)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `mileage-backup-${todayStr()}.json`;
+  a.click();
+});
+document.getElementById('restoreBtnLabel').addEventListener('click', ()=>{
+  document.getElementById('restoreFile').click();
+});
+document.getElementById('restoreFile').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    try{
+      const parsed = JSON.parse(ev.target.result);
+      if(!parsed.days) throw new Error('bad format');
+      db = parsed;
+      saveDB();
+      loadDayIntoForm(); renderHistory(); refreshMonthSelect(); refreshDateSelect();
+      dlg('สำเร็จ', 'กู้คืนข้อมูลเรียบร้อยแล้ว');
+    }catch(err){
+      dlg('ไฟล์ไม่ถูกต้อง', 'ไม่สามารถอ่านไฟล์สำรองนี้ได้');
+    }
+  };
+  reader.readAsText(file);
+});
+
+// ---------- init ----------
+loadDayIntoForm();
+renderHistory();
+refreshMonthSelect();
+</script>
+</body>
+</html>
