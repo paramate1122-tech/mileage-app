@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2312141a'/%3E%3Ctext x='50' y='62' font-size='48' text-anchor='middle' fill='%23ffb020' font-family='monospace'%3E0%3C/text%3E%3C/svg%3E">
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="https://unpkg.com/docx@8.5.0/build/index.js"></script>
+<script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
 <style>
   :root{
     --bg:#0f1116;
@@ -418,9 +418,13 @@ function renderPointSlots(){
   document.getElementById('viewRouteBtn').disabled = filledCount < 1;
 }
 // ---------- reverse geocoding (free, no API key) ----------
-// ประกอบเป็น "ที่อยู่" แบบ ตึก/เลขที่ ถนน แขวง/ตำบล เพื่อให้ Google Maps ค้นหาเจอตำแหน่งที่แม่นยำ
-// (แทนที่จะใช้แค่ชื่อสถานที่เดี่ยวๆ ซึ่งบางครั้ง Google ไม่รู้จักชื่อนั้นแล้วค้นหาพลาดตำแหน่ง)
+// ลำดับความสำคัญ: 1) ชื่อสถานที่จริงที่อยู่ใกล้ๆ (ร้าน/อาคาร/โรงงาน ฯลฯ) ให้ผลลัพธ์เจาะจงกว่า
+//                 2) ถ้าไม่เจอสถานที่ชื่อจริง ค่อยประกอบเป็นที่อยู่ (เลขที่/ถนน/ตำบล) แทน
+//                 3) สุดท้ายค่อย fallback ไปเป็นพิกัดดิบ
 async function reverseGeocode(lat, lng){
+  const poi = await findNearbyPOI(lat, lng);
+  if(poi) return poi;
+
   try{
     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&namedetails=1&accept-language=th`);
     const data = await res.json();
@@ -441,8 +445,58 @@ async function reverseGeocode(lat, lng){
 
     if(bits.length) return bits.slice(0,4).join(', ');
     if(data.display_name) return data.display_name.split(',').slice(0,3).join(',').trim();
-  }catch(e){ /* เครือข่ายมีปัญหา หรือถูกจำกัดอัตราการเรียก — ใช้พิกัดแทน */ }
+  }catch(e){ /* เครือข่ายมีปัญหา หรือถูกจำกัดอัตราการเรียก */ }
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+// ค้นหา POI ที่มีชื่อจริง (ร้านอาหาร/คอนโด/โรงงาน/อาคาร ฯลฯ) โดยขยายรัศมีทีละขั้น
+async function findNearbyPOI(lat, lng){
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter'
+  ];
+  const cat = (r) => `
+      nwr(around:${r},${lat},${lng})[name][amenity];
+      nwr(around:${r},${lat},${lng})[name][shop];
+      nwr(around:${r},${lat},${lng})[name][tourism];
+      nwr(around:${r},${lat},${lng})[name][office];
+      nwr(around:${r},${lat},${lng})[name][craft];
+      nwr(around:${r},${lat},${lng})[name][industrial];
+      nwr(around:${r},${lat},${lng})[name][public_transport];
+      nwr(around:${r},${lat},${lng})[name][railway];
+      nwr(around:${r},${lat},${lng})[name][highway~"bus_stop|services|rest_area"];
+      nwr(around:${r},${lat},${lng})[name][building];
+      nwr(around:${r},${lat},${lng})[name][landuse];
+      nwr(around:${r},${lat},${lng})[name][man_made];
+      nwr(around:${r},${lat},${lng})[name][leisure];
+      nwr(around:${r},${lat},${lng})[name][healthcare];
+  `;
+  for(const radius of [300, 800, 2000]){
+    for(const ep of endpoints){
+      try{
+        const query = `[out:json][timeout:20];(${cat(radius)});out center tags;`;
+        const res = await fetch(ep, {
+          method:'POST', headers:{'Content-Type':'text/plain;charset=UTF-8'}, body:query
+        });
+        if(!res.ok) continue;
+        const data = await res.json();
+        const candidates = (data.elements || []).map(el=>{
+          const tags = el.tags || {};
+          const name = tags['name:th'] || tags.name;
+          const elLat = el.lat ?? el.center?.lat;
+          const elLng = el.lon ?? el.center?.lon;
+          if(!name || elLat == null || elLng == null) return null;
+          const dLat = (elLat-lat) * 111320;
+          const dLng = (elLng-lng) * 111320 * Math.cos(lat*Math.PI/180);
+          return { name, distance: Math.hypot(dLat,dLng) };
+        }).filter(Boolean).sort((a,b)=>a.distance-b.distance);
+        if(candidates.length) return candidates[0].name;
+        break; // รัศมีนี้ไม่มีผล ขยายรัศมีต่อ
+      }catch(e){ continue; }
+    }
+  }
+  return null;
+}
 }
 
 ['start','end'].forEach(which=>{
@@ -786,13 +840,107 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   XLSX.writeFile(wb, `mileage-${month}.xlsx`);
 });
 
-// ---------- export word (.docx) พร้อมรูปไมล์และลิงก์แผนที่ ----------
+// ---------- export word (.docx) พร้อมรูปไมล์และรูปแผนที่จริง ----------
 function b64ToUint8(dataUrl){
   const base64 = dataUrl.split(',')[1];
   const bin = atob(base64);
   const arr = new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
   return arr;
+}
+
+// แปลงพิกัดเป็นตำแหน่ง "โลก" หน่วยจำนวนกระเบื้อง (tile) ที่ระดับซูมที่กำหนด (Web Mercator)
+function lonToTileX(lon, zoom){ return (lon+180)/360 * Math.pow(2,zoom); }
+function latToTileY(lat, zoom){
+  const rad = lat*Math.PI/180;
+  return (1 - Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2 * Math.pow(2,zoom);
+}
+
+// ประกอบภาพแผนที่จริงจากกระเบื้อง OpenStreetMap (ฟรี ไม่ต้องใช้ API key) พร้อมวาดจุด/เส้นทางทับ
+async function buildRouteMapImage(pts, statusCb){
+  if(!pts.length) return null;
+  const TILE = 256;
+  const W = 640, H = 420;
+
+  let minLat=Math.min(...pts.map(p=>p.lat)), maxLat=Math.max(...pts.map(p=>p.lat));
+  let minLng=Math.min(...pts.map(p=>p.lng)), maxLng=Math.max(...pts.map(p=>p.lng));
+  const padLat = Math.max((maxLat-minLat)*0.3, 0.004);
+  const padLng = Math.max((maxLng-minLng)*0.3, 0.004);
+  minLat-=padLat; maxLat+=padLat; minLng-=padLng; maxLng+=padLng;
+
+  let zoom = 16, box = null;
+  for(; zoom>=3; zoom--){
+    const x1=lonToTileX(minLng,zoom)*TILE, x2=lonToTileX(maxLng,zoom)*TILE;
+    const y1=latToTileY(maxLat,zoom)*TILE, y2=latToTileY(minLat,zoom)*TILE;
+    if((x2-x1)<=W && (y2-y1)<=H){ box={x1,x2,y1,y2}; break; }
+  }
+  if(!box){ zoom=3; box={x1:0,x2:W,y1:0,y2:H}; }
+
+  const cx=(box.x1+box.x2)/2, cy=(box.y1+box.y2)/2;
+  const left=cx-W/2, top=cy-H/2;
+  const maxTileIdx = Math.pow(2,zoom)-1;
+  const tx1=Math.floor(left/TILE), tx2=Math.floor((left+W)/TILE);
+  const ty1=Math.floor(top/TILE), ty2=Math.floor((top+H)/TILE);
+
+  const canvas=document.createElement('canvas');
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#dfe3e8'; ctx.fillRect(0,0,W,H);
+
+  if(statusCb) statusCb('กำลังโหลดกระเบื้องแผนที่…');
+  const loads=[];
+  for(let tx=tx1; tx<=tx2; tx++){
+    for(let ty=ty1; ty<=ty2; ty++){
+      if(tx<0||ty<0||tx>maxTileIdx||ty>maxTileIdx) continue;
+      const dx=tx*TILE-left, dy=ty*TILE-top;
+      loads.push(new Promise(res=>{
+        const img=new Image();
+        img.crossOrigin='anonymous';
+        img.onload=()=>{ try{ ctx.drawImage(img,dx,dy); }catch(e){} res(); };
+        img.onerror=()=>res();
+        img.src=`https://tile.openstreetmap.org/${zoom}/${tx}/${ty}.png`;
+      }));
+    }
+  }
+  await Promise.all(loads);
+
+  function toXY(p){
+    return [ lonToTileX(p.lng,zoom)*TILE-left, latToTileY(p.lat,zoom)*TILE-top ];
+  }
+
+  if(pts.length>1){
+    ctx.strokeStyle='#2f6fed';
+    ctx.lineWidth=4;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    pts.forEach((p,i)=>{
+      const [x,y]=toXY(p);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  }
+  pts.forEach((p,i)=>{
+    const [x,y]=toXY(p);
+    ctx.beginPath();
+    ctx.arc(x,y,11,0,Math.PI*2);
+    ctx.fillStyle = i===0 ? '#2ecc71' : (i===pts.length-1 ? '#e74c3c' : '#ffb238');
+    ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle='#0f1116'; ctx.stroke();
+    ctx.fillStyle='#0f1116';
+    ctx.font='bold 12px sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(String(i+1), x, y);
+  });
+
+  // เครดิตแหล่งข้อมูลแผนที่ (จำเป็นตามเงื่อนไขการใช้งานของ OpenStreetMap)
+  ctx.fillStyle='rgba(255,255,255,0.85)';
+  ctx.fillRect(0,H-16,W,16);
+  ctx.fillStyle='#333';
+  ctx.font='10px sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText('แผนที่: © OpenStreetMap contributors — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ ไม่ใช่เส้นทางถนนจริง', 4, H-8);
+
+  return canvas.toDataURL('image/png');
 }
 
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
@@ -805,7 +953,6 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   }
   const btn = document.getElementById('exportWordBtn');
   const originalText = btn.textContent;
-  btn.textContent = 'กำลังสร้างไฟล์…';
   btn.disabled = true;
 
   try{
@@ -815,10 +962,13 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
       new Paragraph({ text:document.getElementById('monthSelect').selectedOptions[0].textContent, spacing:{after:300} })
     ];
 
-    dates.forEach(d=>{
+    for(let di=0; di<dates.length; di++){
+      const d = dates[di];
       const r = db.days[d];
       const dist = (r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm) ? (r.endKm-r.startKm) : null;
       const cost = dist!=null ? dist*1.2*5 : null;
+
+      btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length})`;
 
       children.push(new Paragraph({ text:fmtDateTH(d), heading:HeadingLevel.HEADING_2, spacing:{before:400} }));
       children.push(new Paragraph({ children:[ new TextRun(
@@ -844,16 +994,25 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
         pts.forEach((p,i)=>{
           children.push(new Paragraph({ text:`${i+1}. ${p.label || (p.lat.toFixed(5)+', '+p.lng.toFixed(5))}` }));
         });
+
+        try{
+          const mapDataUrl = await buildRouteMapImage(pts, t=>{ btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length}) ${t}`; });
+          if(mapDataUrl){
+            children.push(new Paragraph({ text:'แผนที่เส้นทาง:', spacing:{before:120} }));
+            children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapDataUrl), transformation:{width:480,height:315} }) ] }));
+          }
+        }catch(e){ console.error('build map image failed', e); }
+
         const url = buildRouteUrl(pts);
         if(url){
           children.push(new Paragraph({ children:[
-            new ExternalHyperlink({ link:url, children:[ new TextRun({ text:'🔗 เปิดเส้นทางของวันนี้ใน Google Maps', style:'Hyperlink' }) ] })
+            new ExternalHyperlink({ link:url, children:[ new TextRun({ text:'🔗 เปิดเส้นทางของวันนี้ใน Google Maps (แบบโต้ตอบได้)', style:'Hyperlink' }) ] })
           ], spacing:{before:80} }));
         }
       } else {
         children.push(new Paragraph({ text:'(ไม่มีจุดที่บันทึกในวันนี้)', spacing:{before:150} }));
       }
-    });
+    }
 
     const doc = new Document({ sections:[{ children }] });
     const blob = await Packer.toBlob(doc);
