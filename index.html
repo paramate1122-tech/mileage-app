@@ -392,15 +392,38 @@ function renderPointSlots(){
 // ---------- reverse geocoding (free, no API key) ----------
 async function reverseGeocode(lat, lng){
   try{
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&addressdetails=1`);
+    // ขอข้อมูลระดับอาคาร/POI ก่อน เพื่อให้ได้ชื่อสถานที่จริงใกล้พิกัดมากที่สุด
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&namedetails=1&extratags=1&layer=address,poi&accept-language=th,en`;
+    const res = await fetch(url, {headers:{'Accept':'application/json'}});
+    if(!res.ok) throw new Error('Reverse geocoding failed');
     const data = await res.json();
-    if(data && data.address){
-      const a = data.address;
-      const name = a.amenity || a.shop || a.building || a.road || a.suburb || a.village || a.town || a.city_district;
-      const area = a.city || a.town || a.county || a.state;
-      return name ? (area && name!==area ? `${name}, ${area}` : name) : (data.display_name ? data.display_name.split(',').slice(0,2).join(',') : null);
+    const a = data.address || {};
+
+    // ชื่อที่เป็นสถานที่/POI ให้มาก่อนชื่อเขตการปกครอง
+    const poiName = data.name || a.amenity || a.shop || a.tourism || a.hotel ||
+      a.restaurant || a.cafe || a.office || a.building || a.house_name ||
+      a.station || a.mall || a.supermarket || a.school || a.hospital;
+
+    // ชื่อถนน/ซอย/หมู่บ้านเป็น fallback ที่ละเอียดกว่าอำเภอ
+    const localName = a.road || a.pedestrian || a.residential || a.neighbourhood ||
+      a.suburb || a.village || a.hamlet || a.town;
+
+    const area = a.city || a.town || a.county || a.state;
+
+    if(poiName){
+      return area && poiName !== area ? `${poiName}, ${area}` : poiName;
     }
-  }catch(e){ /* เครือข่ายมีปัญหา หรือถูกจำกัดอัตราการเรียก — ใช้พิกัดแทน */ }
+    if(localName){
+      return area && localName !== area ? `${localName}, ${area}` : localName;
+    }
+
+    // สุดท้ายค่อยใช้ display_name แต่ตัดส่วนที่เป็นรหัส/ประเทศออกให้สั้นลง
+    if(data.display_name){
+      return data.display_name.split(',').slice(0,3).join(',').trim();
+    }
+  }catch(e){
+    console.warn('Reverse geocoding error:', e);
+  }
   return null;
 }
 
