@@ -40,6 +40,13 @@
   header.top h1{ margin:2px 0 0; font-size:26px; font-weight:600; letter-spacing:-0.02em; }
   header.top .dash-line{ margin-top:14px; height:2px; background:linear-gradient(90deg,var(--amber),transparent 70%); border-radius:2px; }
 
+  .tabbar{ display:flex; gap:6px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:4px; margin-bottom:6px; }
+  .tab-btn{
+    flex:1; padding:10px; border:none; border-radius:9px; background:transparent; color:var(--muted);
+    font-family:var(--sans); font-size:13.5px; font-weight:600; cursor:pointer;
+  }
+  .tab-btn.active{ background:var(--amber); color:#1a1204; }
+
   .datebar{ display:flex; align-items:center; justify-content:space-between; margin:18px 0 14px; }
   .datebar select{
     background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:10px;
@@ -112,7 +119,7 @@
 
   .history-item{
     display:flex; justify-content:space-between; align-items:center;
-    padding:12px 4px; border-bottom:1px solid var(--line);
+    padding:12px 4px; border-bottom:1px solid var(--line); cursor:pointer;
   }
   .history-item:last-child{ border-bottom:none; }
   .history-item .d{ font-size:14px; }
@@ -162,6 +169,12 @@
     <div class="dash-line"></div>
   </header>
 
+  <div class="tabbar">
+    <button class="tab-btn active" id="tabBtnToday" data-tab="today">บันทึกวันนี้</button>
+    <button class="tab-btn" id="tabBtnHistory" data-tab="history">ประวัติ</button>
+  </div>
+
+  <div id="tabToday">
   <div class="datebar">
     <select id="dateSelect"></select>
     <span class="today-badge" id="todayBadge"></span>
@@ -225,11 +238,14 @@
     </div>
     <div class="hint">กด "บันทึก" ที่จุดไหนก็ได้ตามลำดับที่แวะจริง (เช่น จุด 1 = ออกจากบ้าน, จุด 2 = จุดแวะ, จุด 3 = ปลายทาง) ไม่จำเป็นต้องใช้ครบ 5 จุด — ใช้แค่ 2-3 จุดก็เปิดเส้นทางได้ปกติ แต่ละจุดจะถูกแปลงเป็นชื่อสถานที่ให้อัตโนมัติผ่านบริการแผนที่ฟรี ไม่ต้องเปิดแอปค้างไว้ระหว่างจุด กดบันทึกแล้วปิดหน้าจอไปก่อนได้</div>
   </div>
+  </div>
 
+  <div id="tabHistory" style="display:none;">
   <!-- HISTORY -->
   <div class="card">
     <h2>ประวัติทั้งหมด</h2>
     <div id="historyList"></div>
+    <div class="hint">แตะที่วันไหนก็ได้เพื่อเปิดดู/แก้ไขข้อมูลของวันนั้นแบบเต็ม (เหมือนหน้าบันทึกวันนี้)</div>
   </div>
 
   <!-- EXPORT -->
@@ -247,6 +263,7 @@
       </div>
     </div>
     <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
+  </div>
   </div>
 
 </div>
@@ -681,20 +698,24 @@ function renderHistory(){
     if(r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm){
       distTxt = (r.endKm-r.startKm).toLocaleString(undefined,{maximumFractionDigits:1})+' กม.';
     }
-    return `<div class="history-item">
-      <div class="d">${fmtDateTH(d)}<span class="dist">${distTxt}</span></div>
+    const ptsCount = (r.points||[]).filter(p=>p!=null).length;
+    return `<div class="history-item" data-day="${d}">
+      <div class="d">${fmtDateTH(d)}<span class="dist">${distTxt}${ptsCount ? ' • '+ptsCount+' จุด' : ''}</span></div>
       <div class="actions">
-        <button class="icon-btn" data-open="${d}">✎</button>
         <button class="icon-btn del" data-del="${d}">🗑</button>
       </div>
     </div>`;
   }).join('');
-  list.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{
-    currentDate = b.dataset.open;
-    loadDayIntoForm();
-    window.scrollTo({top:0,behavior:'smooth'});
+  list.querySelectorAll('.history-item').forEach(row=>{
+    row.onclick = (e)=>{
+      if(e.target.closest('[data-del]')) return;
+      currentDate = row.dataset.day;
+      loadDayIntoForm();
+      switchTab('today');
+    };
   });
-  list.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+  list.querySelectorAll('[data-del]').forEach(b=>b.onclick=(e)=>{
+    e.stopPropagation();
     if(confirm('ลบข้อมูลวันที่ '+fmtDateTH(b.dataset.del)+' ?')){
       delete db.days[b.dataset.del];
       saveDB(); renderHistory(); refreshDateSelect();
@@ -772,6 +793,17 @@ document.getElementById('restoreFile').addEventListener('change', e=>{
 });
 
 // ---------- init ----------
+function switchTab(name){
+  document.getElementById('tabBtnToday').classList.toggle('active', name==='today');
+  document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
+  document.getElementById('tabToday').style.display = name==='today' ? '' : 'none';
+  document.getElementById('tabHistory').style.display = name==='history' ? '' : 'none';
+  if(name==='history') renderHistory();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
+document.getElementById('tabBtnHistory').addEventListener('click', ()=>switchTab('history'));
+
 loadDayIntoForm();
 renderHistory();
 refreshMonthSelect();
