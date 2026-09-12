@@ -397,66 +397,31 @@ function renderPointSlots(){
   document.getElementById('viewRouteBtn').disabled = filledCount < 1;
 }
 // ---------- reverse geocoding (free, no API key) ----------
+// ประกอบเป็น "ที่อยู่" แบบ ตึก/เลขที่ ถนน แขวง/ตำบล เพื่อให้ Google Maps ค้นหาเจอตำแหน่งที่แม่นยำ
+// (แทนที่จะใช้แค่ชื่อสถานที่เดี่ยวๆ ซึ่งบางครั้ง Google ไม่รู้จักชื่อนั้นแล้วค้นหาพลาดตำแหน่ง)
 async function reverseGeocode(lat, lng){
-  // ค้นหา POI ที่มีชื่อจริง (ร้านอาหาร/คอนโด/โรงงาน/อาคาร ฯลฯ) โดยขยายรัศมีทีละขั้น
-  // ไม่เอา node ประเภทเขต/อำเภอ/ตำบล หรือชื่อถนนมาเป็นผลลัพธ์
-  const endpoints = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter'
-  ];
-  const cat = (r) => `
-      nwr(around:${r},${lat},${lng})[name][amenity];
-      nwr(around:${r},${lat},${lng})[name][shop];
-      nwr(around:${r},${lat},${lng})[name][tourism];
-      nwr(around:${r},${lat},${lng})[name][office];
-      nwr(around:${r},${lat},${lng})[name][craft];
-      nwr(around:${r},${lat},${lng})[name][industrial];
-      nwr(around:${r},${lat},${lng})[name][public_transport];
-      nwr(around:${r},${lat},${lng})[name][railway];
-      nwr(around:${r},${lat},${lng})[name][highway~"bus_stop|services|rest_area"];
-      nwr(around:${r},${lat},${lng})[name][building];
-      nwr(around:${r},${lat},${lng})[name][landuse];
-      nwr(around:${r},${lat},${lng})[name][man_made];
-      nwr(around:${r},${lat},${lng})[name][leisure];
-      nwr(around:${r},${lat},${lng})[name][healthcare];
-  `;
-  for(const radius of [300, 800, 2000]){
-    for(const ep of endpoints){
-      try{
-        const query = `[out:json][timeout:20];(${cat(radius)});out center tags;`;
-        const res = await fetch(ep, {
-          method:'POST', headers:{'Content-Type':'text/plain;charset=UTF-8'}, body:query
-        });
-        if(!res.ok) continue;                 // เซิร์ฟเวอร์นี้ล้ม ลองตัวสำรอง
-        const data = await res.json();
-        const candidates = (data.elements || []).map(el=>{
-          const tags = el.tags || {};
-          const name = tags['name:th'] || tags.name;
-          const elLat = el.lat ?? el.center?.lat;
-          const elLng = el.lon ?? el.center?.lon;
-          if(!name || elLat == null || elLng == null) return null;
-          const dLat = (elLat-lat) * 111320;
-          const dLng = (elLng-lng) * 111320 * Math.cos(lat*Math.PI/180);
-          const distance = Math.hypot(dLat,dLng);
-          return {name, distance};
-        }).filter(Boolean).sort((a,b)=>a.distance-b.distance);
-        if(candidates.length) return candidates[0].name;
-        break; // รัศมีนี้ไม่มีผล ขยายรัศมีต่อ
-      }catch(e){ continue; }
-    }
-  }
-
-  // fallback: Nominatim — ถ้า object ที่ใกล้ที่สุดมีชื่อ (เช่น คอนโด/อาคาร) ให้ใช้ชื่อนั้น
   try{
     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&namedetails=1&accept-language=th`);
     const data = await res.json();
-    if(data.name) return data.name;
     const a = data.address || {};
-    return a.road || a.pedestrian || a.residential || a.neighbourhood || a.suburb ||
-      `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-  }catch(e){
-    return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-  }
+
+    const building = (data.namedetails && data.namedetails['name:th']) || data.name || a.building || '';
+    const houseNum = a.house_number || '';
+    const road = a.road || a.pedestrian || a.residential || a.footway || a.cycleway || '';
+    const sub = a.suburb || a.quarter || a.neighbourhood || a.village || '';
+    const district = a.city_district || a.town || a.county || '';
+
+    const bits = [];
+    if(building) bits.push(building);
+    const houseRoad = [houseNum, road].filter(Boolean).join(' ');
+    if(houseRoad) bits.push(houseRoad);
+    if(sub) bits.push(sub);
+    if(district && district !== sub) bits.push(district);
+
+    if(bits.length) return bits.slice(0,4).join(', ');
+    if(data.display_name) return data.display_name.split(',').slice(0,3).join(',').trim();
+  }catch(e){ /* เครือข่ายมีปัญหา หรือถูกจำกัดอัตราการเรียก — ใช้พิกัดแทน */ }
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
 ['start','end'].forEach(which=>{
