@@ -138,13 +138,15 @@
   .crop-wrap{ position:relative; width:100%; border-radius:10px; overflow:hidden; background:#000; touch-action:none; }
   .crop-wrap img{ width:100%; display:block; pointer-events:none; }
   .crop-box{
-    position:absolute; border:2px solid var(--amber); border-radius:6px;
+    position:absolute; border:2px solid var(--amber); border-radius:5px;
     box-shadow:0 0 0 2000px rgba(0,0,0,0.4);
-    touch-action:none; cursor:move;
+    touch-action:none; cursor:grab; user-select:none;
+    min-width:24px; min-height:18px;
   }
+  .crop-box:active{ cursor:grabbing; }
   .crop-handle{
-    position:absolute; right:-10px; bottom:-10px; width:20px; height:20px;
-    background:var(--amber); border:2px solid var(--panel); border-radius:50%;
+    position:absolute; right:-15px; bottom:-15px; width:30px; height:30px;
+    background:var(--amber); border:3px solid var(--panel); border-radius:50%;
     touch-action:none; cursor:nwse-resize;
   }
 
@@ -453,7 +455,7 @@ function openCropDialog(which, displayDataUrl, ocrCanvas){
   const handle = document.getElementById('cropHandle');
   const wrap = document.getElementById('cropImgWrap');
 
-  const defaults = {x:0.42, y:0.83, w:0.16, h:0.055};
+  const defaults = {x:0.44, y:0.84, w:0.12, h:0.045};
   const rel = Object.assign({}, defaults, lastTapRel[which] || {});
 
   function place(r){
@@ -477,7 +479,10 @@ function openCropDialog(which, displayDataUrl, ocrCanvas){
     e.preventDefault(); e.stopPropagation();
     dragMode = mode;
     dragStart = { px:e.clientX, py:e.clientY, r:currentRel() };
-    if(e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
+    const captureTarget = mode === 'resize' ? handle : marker;
+    if(captureTarget.setPointerCapture){
+      try{ captureTarget.setPointerCapture(e.pointerId); }catch(err){}
+    }
   }
   function onMove(e){
     if(!dragMode) return;
@@ -500,7 +505,8 @@ function openCropDialog(which, displayDataUrl, ocrCanvas){
   handle.onpointerdown = e=>startDrag(e,'resize');
   wrap.onpointermove = onMove;
   wrap.onpointerup = endDrag;
-  wrap.onpointerleave = endDrag;
+  wrap.onpointercancel = endDrag;
+  wrap.onpointerleave = e=>{ if(dragMode) onMove(e); };
 
   // แตะพื้นหลัง (นอกกรอบ) เพื่อย้ายกรอบมาที่จุดนั้นอย่างรวดเร็ว โดยไม่เปลี่ยนขนาด
   wrap.onclick = (e)=>{
