@@ -12,6 +12,7 @@
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2312141a'/%3E%3Ctext x='50' y='62' font-size='48' text-anchor='middle' fill='%23ffb020' font-family='monospace'%3E0%3C/text%3E%3C/svg%3E">
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://unpkg.com/docx@8.5.0/build/index.js"></script>
 <style>
   :root{
     --bg:#0f1116;
@@ -238,6 +239,8 @@
     </div>
     <div class="hint">กด "บันทึก" ที่จุดไหนก็ได้ตามลำดับที่แวะจริง (เช่น จุด 1 = ออกจากบ้าน, จุด 2 = จุดแวะ, จุด 3 = ปลายทาง) ไม่จำเป็นต้องใช้ครบ 5 จุด — ใช้แค่ 2-3 จุดก็เปิดเส้นทางได้ปกติ แต่ละจุดจะถูกแปลงเป็นชื่อสถานที่ให้อัตโนมัติผ่านบริการแผนที่ฟรี ไม่ต้องเปิดแอปค้างไว้ระหว่างจุด กดบันทึกแล้วปิดหน้าจอไปก่อนได้</div>
   </div>
+
+  <button class="btn btn-primary" id="saveTodayBtn" style="margin-bottom:24px;">💾 บันทึกข้อมูลวันนี้</button>
   </div>
 
   <div id="tabHistory" style="display:none;">
@@ -254,6 +257,7 @@
     <div class="footer-actions">
       <select id="monthSelect"></select>
       <button class="btn btn-teal" id="exportExcelBtn">📊 ส่งออกเป็น Excel (.xlsx)</button>
+      <button class="btn btn-ghost" id="exportWordBtn">📄 ส่งออกเป็น Word (.docx) พร้อมรูป+แผนที่</button>
       <div class="btn-row">
         <button class="btn btn-ghost btn-sm" id="backupBtn" style="flex:1;">สำรองข้อมูล (JSON)</button>
         <button class="btn btn-ghost btn-sm" id="restoreBtnLabel" style="flex:1;">
@@ -262,7 +266,7 @@
         </button>
       </div>
     </div>
-    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
+    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ไฟล์ Word จะมีรูปไมล์เริ่ม/จบวันของทุกวันในเดือนนั้น พร้อมลิงก์เปิดเส้นทางใน Google Maps และรายชื่อจุดที่แวะของแต่ละวัน. ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
   </div>
   </div>
 
@@ -671,20 +675,33 @@ document.getElementById('clearPointsBtn').addEventListener('click', ()=>{
   document.getElementById('gpsLive').textContent = '';
 });
 
+document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
+  // ค่าทุกอย่างถูกบันทึกลงเครื่องอัตโนมัติอยู่แล้วทุกครั้งที่พิมพ์/ถ่ายรูป/บันทึกจุด
+  // ปุ่มนี้ไว้ยืนยันให้แน่ใจอีกครั้งและแจ้งผลให้เห็นชัดเจน
+  const rec = dayRec(currentDate);
+  rec.startKm = document.getElementById('startKm').value === '' ? null : parseFloat(document.getElementById('startKm').value);
+  rec.endKm = document.getElementById('endKm').value === '' ? null : parseFloat(document.getElementById('endKm').value);
+  saveDB();
+  renderHistory();
+  dlg('บันทึกแล้ว', `บันทึกข้อมูลวันที่ ${fmtDateTH(currentDate)} เรียบร้อยแล้ว`);
+});
+
+function buildRouteUrl(pts){
+  if(!pts.length) return null;
+  const toStop = p => p.label ? encodeURIComponent(p.label) : `${p.lat},${p.lng}`;
+  if(pts.length === 1){
+    return `https://www.google.com/maps/search/?api=1&query=${toStop(pts[0])}`;
+  }
+  const origin = toStop(pts[0]);
+  const dest = toStop(pts[pts.length-1]);
+  const mid = pts.slice(1,-1).map(toStop).join('|');
+  return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}` + (mid ? `&waypoints=${mid}` : '') + `&travelmode=driving`;
+}
+
 document.getElementById('viewRouteBtn').addEventListener('click', ()=>{
   const pts = pointSlots().filter(p=>p!=null);
-  if(pts.length < 1) return;
-  const toStop = p => p.label ? encodeURIComponent(p.label) : `${p.lat},${p.lng}`;
-  let url;
-  if(pts.length === 1){
-    url = `https://www.google.com/maps/search/?api=1&query=${toStop(pts[0])}`;
-  } else {
-    const origin = toStop(pts[0]);
-    const dest = toStop(pts[pts.length-1]);
-    const mid = pts.slice(1,-1).map(toStop).join('|');
-    url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}` + (mid ? `&waypoints=${mid}` : '') + `&travelmode=driving`;
-  }
-  window.open(url, '_blank');
+  const url = buildRouteUrl(pts);
+  if(url) window.open(url, '_blank');
 });
 
 // ---------- history ----------
@@ -702,17 +719,24 @@ function renderHistory(){
     return `<div class="history-item" data-day="${d}">
       <div class="d">${fmtDateTH(d)}<span class="dist">${distTxt}${ptsCount ? ' • '+ptsCount+' จุด' : ''}</span></div>
       <div class="actions">
+        <button class="icon-btn" data-edit="${d}">✎</button>
         <button class="icon-btn del" data-del="${d}">🗑</button>
       </div>
     </div>`;
   }).join('');
   list.querySelectorAll('.history-item').forEach(row=>{
     row.onclick = (e)=>{
-      if(e.target.closest('[data-del]')) return;
+      if(e.target.closest('[data-del]') || e.target.closest('[data-edit]')) return;
       currentDate = row.dataset.day;
       loadDayIntoForm();
       switchTab('today');
     };
+  });
+  list.querySelectorAll('[data-edit]').forEach(b=>b.onclick=(e)=>{
+    e.stopPropagation();
+    currentDate = b.dataset.edit;
+    loadDayIntoForm();
+    switchTab('today');
   });
   list.querySelectorAll('[data-del]').forEach(b=>b.onclick=(e)=>{
     e.stopPropagation();
@@ -760,6 +784,90 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'สรุปไมล์');
   XLSX.writeFile(wb, `mileage-${month}.xlsx`);
+});
+
+// ---------- export word (.docx) พร้อมรูปไมล์และลิงก์แผนที่ ----------
+function b64ToUint8(dataUrl){
+  const base64 = dataUrl.split(',')[1];
+  const bin = atob(base64);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
+  const month = document.getElementById('monthSelect').value;
+  const dates = Object.keys(db.days).filter(d=>d.startsWith(month)).sort();
+  if(dates.length===0){ dlg('ไม่มีข้อมูล', 'ไม่พบข้อมูลในเดือนที่เลือก'); return; }
+  if(typeof docx === 'undefined'){
+    dlg('สร้างไฟล์ไม่สำเร็จ', 'โหลดตัวสร้างไฟล์ Word ไม่สำเร็จ กรุณาเช็คการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่');
+    return;
+  }
+  const btn = document.getElementById('exportWordBtn');
+  const originalText = btn.textContent;
+  btn.textContent = 'กำลังสร้างไฟล์…';
+  btn.disabled = true;
+
+  try{
+    const { Document, Packer, Paragraph, TextRun, ImageRun, ExternalHyperlink, HeadingLevel } = docx;
+    const children = [
+      new Paragraph({ text:'รายงานเลขไมล์และเส้นทางประจำเดือน', heading:HeadingLevel.HEADING_1 }),
+      new Paragraph({ text:document.getElementById('monthSelect').selectedOptions[0].textContent, spacing:{after:300} })
+    ];
+
+    dates.forEach(d=>{
+      const r = db.days[d];
+      const dist = (r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm) ? (r.endKm-r.startKm) : null;
+      const cost = dist!=null ? dist*1.2*5 : null;
+
+      children.push(new Paragraph({ text:fmtDateTH(d), heading:HeadingLevel.HEADING_2, spacing:{before:400} }));
+      children.push(new Paragraph({ children:[ new TextRun(
+        `ไมล์เริ่มต้น: ${r.startKm ?? '-'} กม.   ไมล์สิ้นสุด: ${r.endKm ?? '-'} กม.   ระยะทาง: ${dist!=null?dist.toLocaleString(undefined,{maximumFractionDigits:1}):'-'} กม.   ค่าเสื่อม: ${cost!=null?cost.toLocaleString(undefined,{maximumFractionDigits:2}):'-'} บาท`
+      )]}));
+
+      if(r.startPhoto){
+        children.push(new Paragraph({ text:'รูปไมล์เริ่มวัน', spacing:{before:150} }));
+        try{
+          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(r.startPhoto), transformation:{width:320,height:213} }) ] }));
+        }catch(e){ console.error('embed start photo failed', e); }
+      }
+      if(r.endPhoto){
+        children.push(new Paragraph({ text:'รูปไมล์จบวัน', spacing:{before:150} }));
+        try{
+          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(r.endPhoto), transformation:{width:320,height:213} }) ] }));
+        }catch(e){ console.error('embed end photo failed', e); }
+      }
+
+      const pts = (r.points||[]).filter(p=>p!=null);
+      if(pts.length){
+        children.push(new Paragraph({ text:'จุดที่บันทึกระหว่างวัน:', spacing:{before:150} }));
+        pts.forEach((p,i)=>{
+          children.push(new Paragraph({ text:`${i+1}. ${p.label || (p.lat.toFixed(5)+', '+p.lng.toFixed(5))}` }));
+        });
+        const url = buildRouteUrl(pts);
+        if(url){
+          children.push(new Paragraph({ children:[
+            new ExternalHyperlink({ link:url, children:[ new TextRun({ text:'🔗 เปิดเส้นทางของวันนี้ใน Google Maps', style:'Hyperlink' }) ] })
+          ], spacing:{before:80} }));
+        }
+      } else {
+        children.push(new Paragraph({ text:'(ไม่มีจุดที่บันทึกในวันนี้)', spacing:{before:150} }));
+      }
+    });
+
+    const doc = new Document({ sections:[{ children }] });
+    const blob = await Packer.toBlob(doc);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `mileage-report-${month}.docx`;
+    a.click();
+  }catch(err){
+    console.error('Word export error:', err);
+    dlg('สร้างไฟล์ไม่สำเร็จ', 'เกิดข้อผิดพลาดระหว่างสร้างไฟล์ Word: ' + (err && err.message ? err.message : 'ไม่ทราบสาเหตุ'));
+  }finally{
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
 });
 
 // ---------- backup / restore ----------
