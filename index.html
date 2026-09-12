@@ -391,39 +391,51 @@ function renderPointSlots(){
 }
 // ---------- reverse geocoding (free, no API key) ----------
 async function reverseGeocode(lat, lng){
+  // ค้นหา POI/สถานที่ที่มีชื่อใกล้พิกัดจริงก่อน เพื่อไม่ให้ได้แค่ชื่ออำเภอ
   try{
-    // ขอข้อมูลระดับอาคาร/POI ก่อน เพื่อให้ได้ชื่อสถานที่จริงใกล้พิกัดมากที่สุด
-    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&namedetails=1&extratags=1&layer=address,poi&accept-language=th,en`;
-    const res = await fetch(url, {headers:{'Accept':'application/json'}});
-    if(!res.ok) throw new Error('Reverse geocoding failed');
+    const radius = 250;
+    const query = `[out:json][timeout:12];(nwr(around:${radius},${lat},${lng})[name];);out center tags;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=UTF-8'},
+      body:query
+    });
     const data = await res.json();
-    const a = data.address || {};
+    const candidates = (data.elements || []).map(el=>{
+      const tags = el.tags || {};
+      const elLat = el.lat ?? el.center?.lat;
+      const elLng = el.lon ?? el.center?.lon;
+      if(elLat == null || elLng == null || !tags.name) return null;
+      const dLat = (elLat-lat) * 111320;
+      const dLng = (elLng-lng) * 111320 * Math.cos(lat*Math.PI/180);
+      const distance = Math.sqrt(dLat*dLat+dLng*dLng);
+      const excluded = /^(อำเภอ|เขต|ตำบล|แขวง|จังหวัด|กรุงเทพมหานคร|district|amphoe|tambon|subdistrict|province)/i.test(tags.name);
+      const important = tags.amenity || tags.shop || tags.tourism || tags.office || tags.man_made || tags.building || tags.highway === 'bus_stop' || tags.public_transport;
+      return {name:tags.name, distance, excluded, important};
+    }).filter(Boolean)
+      .filter(x=>!x.excluded)
+      .sort((a,b)=>(Number(b.important)-Number(a.important)) || (a.distance-b.distance));
 
-    // ชื่อที่เป็นสถานที่/POI ให้มาก่อนชื่อเขตการปกครอง
-    const poiName = data.name || a.amenity || a.shop || a.tourism || a.hotel ||
-      a.restaurant || a.cafe || a.office || a.building || a.house_name ||
-      a.station || a.mall || a.supermarket || a.school || a.hospital;
-
-    // ชื่อถนน/ซอย/หมู่บ้านเป็น fallback ที่ละเอียดกว่าอำเภอ
-    const localName = a.road || a.pedestrian || a.residential || a.neighbourhood ||
-      a.suburb || a.village || a.hamlet || a.town;
-
-    const area = a.city || a.town || a.county || a.state;
-
-    if(poiName){
-      return area && poiName !== area ? `${poiName}, ${area}` : poiName;
-    }
-    if(localName){
-      return area && localName !== area ? `${localName}, ${area}` : localName;
-    }
-
-    // สุดท้ายค่อยใช้ display_name แต่ตัดส่วนที่เป็นรหัส/ประเทศออกให้สั้นลง
-    if(data.display_name){
-      return data.display_name.split(',').slice(0,3).join(',').trim();
+    if(candidates.length){
+      // เลือก POI ที่ใกล้ที่สุด โดยให้สถานที่ที่มีประเภทชัดเจนได้สิทธิ์ก่อนเล็กน้อย
+      const nearest = candidates.sort((a,b)=>a.distance-b.distance)[0];
+      if(nearest && nearest.distance <= radius) return nearest.name;
     }
   }catch(e){
-    console.warn('Reverse geocoding error:', e);
+    console.warn('Nearby POI lookup failed:', e);
   }
+
+  // fallback: reverse geocoding ปกติ แต่พยายามไม่ใช้ชื่อระดับอำเภอเป็นชื่อหลัก
+  try{
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=th`);
+    const data = await res.json();
+    if(data && data.address){
+      const a = data.address;
+      const name = a.amenity || a.shop || a.tourism || a.office || a.building || a.road || a.neighbourhood || a.suburb || a.village;
+      const area = a.city || a.town || a.county || a.state;
+      return name ? (area && name!==area ? `${name}, ${area}` : name) : (data.display_name ? data.display_name.split(',').slice(0,3).join(',') : null);
+    }
+  }catch(e){ /* fallback เป็นพิกัด */ }
   return null;
 }
 
