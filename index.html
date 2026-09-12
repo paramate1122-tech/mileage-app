@@ -135,12 +135,17 @@
   .dlg-body .btn{ margin-top:14px; }
 
   #cropDlg{ max-width:92vw; width:92vw; }
-  .crop-wrap{ position:relative; width:100%; border-radius:10px; overflow:hidden; background:#000; touch-action:manipulation; }
-  .crop-wrap img{ width:100%; display:block; }
+  .crop-wrap{ position:relative; width:100%; border-radius:10px; overflow:hidden; background:#000; touch-action:none; }
+  .crop-wrap img{ width:100%; display:block; pointer-events:none; }
   .crop-box{
-    position:absolute; width:34%; height:11%; border:2px solid var(--amber);
-    border-radius:6px; transform:translate(-50%,-50%); pointer-events:none;
-    box-shadow:0 0 0 2000px rgba(0,0,0,0.35);
+    position:absolute; border:2px solid var(--amber); border-radius:6px;
+    box-shadow:0 0 0 2000px rgba(0,0,0,0.4);
+    touch-action:none; cursor:move;
+  }
+  .crop-handle{
+    position:absolute; right:-10px; bottom:-10px; width:20px; height:20px;
+    background:var(--amber); border:2px solid var(--panel); border-radius:50%;
+    touch-action:none; cursor:nwse-resize;
   }
 
   ::-webkit-scrollbar{ display:none; }
@@ -254,11 +259,13 @@
 
 <dialog id="cropDlg">
   <div class="dlg-body" style="padding:16px;">
-    <h3 style="margin-bottom:6px;">แตะที่ตัวเลขไมล์รวมในรูป</h3>
-    <p style="margin:0 0 10px;">แตะจุดกึ่งกลางของเลขไมล์รวม (ไม่ใช่ Trip A หรือ AVG) แอปจะอ่านตัวเลขเฉพาะบริเวณที่แตะเท่านั้น</p>
+    <h3 style="margin-bottom:6px;">เลือกตำแหน่งเลขไมล์รวม</h3>
+    <p style="margin:0 0 10px;">ลากกรอบสีเหลืองไปคลุมเฉพาะเลขไมล์รวม ลากจุดกลมมุมล่างขวาเพื่อปรับขนาดกรอบให้พอดี</p>
     <div class="crop-wrap" id="cropImgWrap">
       <img id="cropImg" alt="รูปไมล์">
-      <div class="crop-box" id="cropMarker"></div>
+      <div class="crop-box" id="cropMarker">
+        <div class="crop-handle" id="cropHandle"></div>
+      </div>
     </div>
     <div class="btn-row" style="margin-top:12px;">
       <button class="btn btn-primary" id="cropConfirmBtn" style="flex:1;">อ่านตัวเลขตรงนี้</button>
@@ -443,25 +450,72 @@ function openCropDialog(which, displayDataUrl, ocrCanvas){
   const dlgEl = document.getElementById('cropDlg');
   const imgEl = document.getElementById('cropImg');
   const marker = document.getElementById('cropMarker');
+  const handle = document.getElementById('cropHandle');
   const wrap = document.getElementById('cropImgWrap');
 
-  const rel = lastTapRel[which] || {x:0.55, y:0.86};
+  const defaults = {x:0.42, y:0.83, w:0.16, h:0.055};
+  const rel = Object.assign({}, defaults, lastTapRel[which] || {});
+
   function place(r){
     marker.style.left = (r.x*100)+'%';
     marker.style.top = (r.y*100)+'%';
-    marker.dataset.relx = r.x;
-    marker.dataset.rely = r.y;
+    marker.style.width = (r.w*100)+'%';
+    marker.style.height = (r.h*100)+'%';
+    marker.dataset.relx=r.x; marker.dataset.rely=r.y; marker.dataset.relw=r.w; marker.dataset.relh=r.h;
+  }
+  function currentRel(){
+    return {
+      x: parseFloat(marker.dataset.relx), y: parseFloat(marker.dataset.rely),
+      w: parseFloat(marker.dataset.relw), h: parseFloat(marker.dataset.relh)
+    };
   }
   imgEl.onload = () => place(rel);
   imgEl.src = displayDataUrl;
 
-  wrap.onclick = (e)=>{
+  let dragMode = null, dragStart = null;
+  function startDrag(e, mode){
+    e.preventDefault(); e.stopPropagation();
+    dragMode = mode;
+    dragStart = { px:e.clientX, py:e.clientY, r:currentRel() };
+    if(e.target.setPointerCapture) e.target.setPointerCapture(e.pointerId);
+  }
+  function onMove(e){
+    if(!dragMode) return;
     const rect = wrap.getBoundingClientRect();
-    place({ x:(e.clientX-rect.left)/rect.width, y:(e.clientY-rect.top)/rect.height });
+    const dx = (e.clientX - dragStart.px) / rect.width;
+    const dy = (e.clientY - dragStart.py) / rect.height;
+    const r = Object.assign({}, dragStart.r);
+    if(dragMode === 'move'){
+      r.x = Math.max(0, Math.min(1-r.w, dragStart.r.x + dx));
+      r.y = Math.max(0, Math.min(1-r.h, dragStart.r.y + dy));
+    } else {
+      r.w = Math.max(0.06, Math.min(1-r.x, dragStart.r.w + dx));
+      r.h = Math.max(0.03, Math.min(1-r.y, dragStart.r.h + dy));
+    }
+    place(r);
+  }
+  function endDrag(){ dragMode = null; }
+
+  marker.onpointerdown = e=>startDrag(e,'move');
+  handle.onpointerdown = e=>startDrag(e,'resize');
+  wrap.onpointermove = onMove;
+  wrap.onpointerup = endDrag;
+  wrap.onpointerleave = endDrag;
+
+  // แตะพื้นหลัง (นอกกรอบ) เพื่อย้ายกรอบมาที่จุดนั้นอย่างรวดเร็ว โดยไม่เปลี่ยนขนาด
+  wrap.onclick = (e)=>{
+    if(e.target === marker || e.target === handle) return;
+    const rect = wrap.getBoundingClientRect();
+    const relx = (e.clientX-rect.left)/rect.width;
+    const rely = (e.clientY-rect.top)/rect.height;
+    const r = currentRel();
+    r.x = Math.max(0, Math.min(1-r.w, relx - r.w/2));
+    r.y = Math.max(0, Math.min(1-r.h, rely - r.h/2));
+    place(r);
   };
 
   document.getElementById('cropConfirmBtn').onclick = ()=>{
-    const r = { x:parseFloat(marker.dataset.relx), y:parseFloat(marker.dataset.rely) };
+    const r = currentRel();
     lastTapRel[which] = r;
     try{ localStorage.setItem('ocrTapRel', JSON.stringify(lastTapRel)); }catch(e){}
     dlgEl.close();
@@ -503,11 +557,11 @@ async function readOdometerFromCrop(which, ocrCanvas, rel){
   }
   if(statusEl) statusEl.textContent = 'กำลังโหลด/อ่านตัวเลขไมล์… (ครั้งแรกอาจใช้เวลาถึง 20-30 วินาที)';
   try{
-    // ครอบตัดเฉพาะบริเวณรอบจุดที่แตะ (กว้าง ~38% สูง ~10% ของภาพ) เพื่อตัด Trip A / AVG ออกไปทั้งหมด
-    const cw = Math.min(ocrCanvas.width, ocrCanvas.width*0.40);
-    const ch = Math.min(ocrCanvas.height, ocrCanvas.height*0.12);
-    let sx = rel.x*ocrCanvas.width - cw/2;
-    let sy = rel.y*ocrCanvas.height - ch/2;
+    // ครอบตัดตามกรอบที่ผู้ใช้ลาก/ปรับขนาดเอง (rel.x,y = มุมบนซ้าย, rel.w,h = ขนาด เป็นสัดส่วนของภาพ)
+    const cw = Math.max(20, rel.w*ocrCanvas.width);
+    const ch = Math.max(20, rel.h*ocrCanvas.height);
+    let sx = rel.x*ocrCanvas.width;
+    let sy = rel.y*ocrCanvas.height;
     sx = Math.max(0, Math.min(ocrCanvas.width-cw, sx));
     sy = Math.max(0, Math.min(ocrCanvas.height-ch, sy));
 
