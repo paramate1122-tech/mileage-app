@@ -381,9 +381,9 @@ async function reverseGeocode(lat, lng){
     if(!file) return;
     const reader = new FileReader();
     reader.onload = ev=>{
-      // resize/compress via canvas to keep storage small
       const img = new Image();
       img.onload = ()=>{
+        // canvas สำหรับเก็บ/แสดงรูป (ย่อเล็ก ประหยัดพื้นที่)
         const maxW = 900;
         const scale = Math.min(1, maxW/img.width);
         const canvas = document.createElement('canvas');
@@ -394,7 +394,18 @@ async function reverseGeocode(lat, lng){
         dayRec(currentDate)[which+'Photo'] = compressed;
         saveDB();
         setPhotoPreview(which, compressed);
-        readOdometerFromImage(which, canvas);
+
+        // canvas แยกต่างหาก ความละเอียดสูงกว่า + เพิ่มคอนทราสต์ ไว้ใช้อ่านตัวเลขโดยเฉพาะ
+        const ocrMaxW = 1400;
+        const ocrScale = Math.min(1, ocrMaxW/img.width);
+        const ocrCanvas = document.createElement('canvas');
+        ocrCanvas.width = img.width*ocrScale;
+        ocrCanvas.height = img.height*ocrScale;
+        const octx = ocrCanvas.getContext('2d');
+        try{ octx.filter = 'grayscale(1) contrast(1.4) brightness(1.08)'; }catch(err){}
+        octx.drawImage(img,0,0,ocrCanvas.width,ocrCanvas.height);
+
+        readOdometerFromImage(which, ocrCanvas);
       };
       img.src = ev.target.result;
     };
@@ -434,19 +445,24 @@ async function readOdometerFromImage(which, canvas){
     const { data } = await worker.recognize(canvas);
     const words = (data.words || [])
       .map(w=>({ text:(w.text||'').replace(/[^0-9]/g,''), bbox:w.bbox }))
-      .filter(w=>w.text.length >= 4 && w.text.length <= 6);
+      .filter(w=>w.text.length >= 4 && w.text.length <= 7);
     if(words.length){
-      // เลขไมล์รวมมักยาว 5-6 หลักและอยู่แถวล่างของจอ — ให้คะแนนตำแหน่งล่างและความยาวที่เหมาะสม
-      words.sort((a,b)=>{
-        const score = w => (w.text.length===5||w.text.length===6 ? 1000:0) + (w.bbox?.y0 || 0);
+      // เลขไมล์รวมอยู่แถวล่างสุดของจอเสมอ (ใต้แถว Trip/AVG) — จำกัดเฉพาะโซนล่าง 30% ของภาพก่อน
+      const h = canvas.height;
+      const bottomZone = words.filter(w => w.bbox && w.bbox.y0 >= h*0.7);
+      const pool = bottomZone.length ? bottomZone : words;
+      pool.sort((a,b)=>{
+        const score = w => (w.text.length===5||w.text.length===6 ? 50:0) + (w.bbox?.y0 || 0);
         return score(b) - score(a);
       });
-      const num = parseFloat(words[0].text);
+      const num = parseFloat(pool[0].text);
       document.getElementById(which+'Km').value = num;
       dayRec(currentDate)[which+'Km'] = num;
       saveDB();
       updateStats();
-      if(statusEl) statusEl.textContent = `อ่านได้ ${num} กม. — ตรวจสอบให้ตรงกับรูปก่อนบันทึก`;
+      if(statusEl) statusEl.textContent = bottomZone.length
+        ? `อ่านได้ ${num} กม. — ตรวจสอบให้ตรงกับรูปก่อนบันทึก`
+        : `อ่านได้ ${num} กม. (ไม่แน่ใจตำแหน่งบนจอ) — ตรวจสอบให้ตรงกับรูปก่อนบันทึก`;
       return;
     }
     if(statusEl) statusEl.textContent = 'อ่านตัวเลขจากรูปไม่ชัดเจน กรุณากรอกเอง';
