@@ -266,7 +266,7 @@
         </button>
       </div>
     </div>
-    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ไฟล์ Word จะมีรูปไมล์เริ่ม/จบวันของทุกวันในเดือนนั้น พร้อมลิงก์เปิดเส้นทางใน Google Maps และรายชื่อจุดที่แวะของแต่ละวัน. ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
+    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ไฟล์ Word จะมีเฉพาะ วันที่ / รูปไมล์เริ่ม-จบวัน / แผนที่เส้นทาง ของทุกวันในเดือนนั้น. ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
   </div>
   </div>
 
@@ -601,18 +601,6 @@ function openCropDialog(which, displayDataUrl, ocrCanvas){
   wrap.onpointerup = endDrag;
   wrap.onpointercancel = endDrag;
   wrap.onpointerleave = e=>{ if(dragMode) onMove(e); };
-
-  // แตะพื้นหลัง (นอกกรอบ) เพื่อย้ายกรอบมาที่จุดนั้นอย่างรวดเร็ว โดยไม่เปลี่ยนขนาด
-  wrap.onclick = (e)=>{
-    if(e.target === marker || e.target === handle) return;
-    const rect = wrap.getBoundingClientRect();
-    const relx = (e.clientX-rect.left)/rect.width;
-    const rely = (e.clientY-rect.top)/rect.height;
-    const r = currentRel();
-    r.x = Math.max(0, Math.min(1-r.w, relx - r.w/2));
-    r.y = Math.max(0, Math.min(1-r.h, rely - r.h/2));
-    place(r);
-  };
 
   document.getElementById('cropConfirmBtn').onclick = ()=>{
     const r = currentRel();
@@ -1031,15 +1019,10 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
     for(let di=0; di<dates.length; di++){
       const d = dates[di];
       const r = db.days[d];
-      const dist = (r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm) ? (r.endKm-r.startKm) : null;
-      const cost = dist!=null ? dist*1.2*5 : null;
 
       btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length})`;
 
       children.push(new Paragraph({ text:fmtDateTH(d), heading:HeadingLevel.HEADING_2, spacing:{before:400} }));
-      children.push(new Paragraph({ children:[ new TextRun(
-        `ไมล์เริ่มต้น: ${r.startKm ?? '-'} กม.   ไมล์สิ้นสุด: ${r.endKm ?? '-'} กม.   ระยะทาง: ${dist!=null?dist.toLocaleString(undefined,{maximumFractionDigits:1}):'-'} กม.   ค่าเสื่อม: ${cost!=null?cost.toLocaleString(undefined,{maximumFractionDigits:2}):'-'} บาท`
-      )]}));
 
       if(r.startPhoto){
         children.push(new Paragraph({ text:'รูปไมล์เริ่มวัน', spacing:{before:150} }));
@@ -1056,11 +1039,6 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
 
       const pts = (r.points||[]).filter(p=>p!=null);
       if(pts.length){
-        children.push(new Paragraph({ text:'จุดที่บันทึกระหว่างวัน:', spacing:{before:150} }));
-        pts.forEach((p,i)=>{
-          children.push(new Paragraph({ text:`${i+1}. ${p.label || (p.lat.toFixed(5)+', '+p.lng.toFixed(5))}` }));
-        });
-
         try{
           const mapDataUrl = await buildRouteMapImage(pts, t=>{ btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length}) ${t}`; });
           if(mapDataUrl){
@@ -1068,15 +1046,6 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
             children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapDataUrl), transformation:{width:480,height:315} }) ] }));
           }
         }catch(e){ console.error('build map image failed', e); }
-
-        const url = buildRouteUrl(pts);
-        if(url){
-          children.push(new Paragraph({ children:[
-            new ExternalHyperlink({ link:url, children:[ new TextRun({ text:'🔗 เปิดเส้นทางของวันนี้ใน Google Maps (แบบโต้ตอบได้)', style:'Hyperlink' }) ] })
-          ], spacing:{before:80} }));
-        }
-      } else {
-        children.push(new Paragraph({ text:'(ไม่มีจุดที่บันทึกในวันนี้)', spacing:{before:150} }));
       }
     }
 
