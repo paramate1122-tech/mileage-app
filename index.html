@@ -855,19 +855,51 @@ function latToTileY(lat, zoom){
   return (1 - Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2 * Math.pow(2,zoom);
 }
 
-// ประกอบภาพแผนที่จริงจากกระเบื้อง OpenStreetMap (ฟรี ไม่ต้องใช้ API key) พร้อมวาดจุด/เส้นทางทับ
+// เรียกบริการนำทางฟรี (OSRM) เพื่อเอาระยะทาง/เวลา/เส้นทางจริงตามถนน (ไม่ใช้ API key)
+async function fetchDrivingRoute(pts){
+  if(pts.length < 2) return null;
+  const coordStr = pts.map(p=>`${p.lng},${p.lat}`).join(';');
+  try{
+    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`);
+    const data = await res.json();
+    if(data.code === 'Ok' && data.routes && data.routes[0]){
+      const route = data.routes[0];
+      return {
+        distanceM: route.distance,
+        durationS: route.duration,
+        coords: route.geometry.coordinates.map(c=>({lng:c[0], lat:c[1]})) // เรียงเป็น {lat,lng} ตามถนนจริง
+      };
+    }
+  }catch(e){ /* เครือข่ายมีปัญหา หรือบริการไม่ว่าง — จะ fallback เป็นเส้นตรงแทน */ }
+  return null;
+}
+function fmtDurationTH(sec){
+  const m = Math.round(sec/60);
+  if(m < 60) return `${m} นาที`;
+  const h = Math.floor(m/60), mm = m%60;
+  return mm ? `${h} ชม. ${mm} นาที` : `${h} ชม.`;
+}
+function fmtKmTH(meters){
+  return (meters/1000).toLocaleString(undefined,{maximumFractionDigits:1})+' กม.';
+}
+
+// ประกอบภาพแผนที่จริงจากกระเบื้อง OpenStreetMap (ฟรี ไม่ต้องใช้ API key) พร้อมเส้นทางจริง/ระยะทาง/เวลา แบบสไตล์ Google Maps
 async function buildRouteMapImage(pts, statusCb){
   if(!pts.length) return null;
   const TILE = 256;
   const W = 640, H = 420;
 
-  let minLat=Math.min(...pts.map(p=>p.lat)), maxLat=Math.max(...pts.map(p=>p.lat));
-  let minLng=Math.min(...pts.map(p=>p.lng)), maxLng=Math.max(...pts.map(p=>p.lng));
-  const padLat = Math.max((maxLat-minLat)*0.3, 0.004);
-  const padLng = Math.max((maxLng-minLng)*0.3, 0.004);
+  if(statusCb) statusCb('กำลังคำนวณเส้นทางจริง…');
+  const route = await fetchDrivingRoute(pts);
+  const linePts = route ? route.coords : pts; // ใช้เส้นทางจริงถ้ามี ไม่งั้น fallback เป็นเส้นตรงระหว่างจุด
+
+  let minLat=Math.min(...linePts.map(p=>p.lat)), maxLat=Math.max(...linePts.map(p=>p.lat));
+  let minLng=Math.min(...linePts.map(p=>p.lng)), maxLng=Math.max(...linePts.map(p=>p.lng));
+  const padLat = Math.max((maxLat-minLat)*0.18, 0.004);
+  const padLng = Math.max((maxLng-minLng)*0.18, 0.004);
   minLat-=padLat; maxLat+=padLat; minLng-=padLng; maxLng+=padLng;
 
-  let zoom = 16, box = null;
+  let zoom = 17, box = null;
   for(; zoom>=3; zoom--){
     const x1=lonToTileX(minLng,zoom)*TILE, x2=lonToTileX(maxLng,zoom)*TILE;
     const y1=latToTileY(maxLat,zoom)*TILE, y2=latToTileY(minLat,zoom)*TILE;
@@ -907,22 +939,25 @@ async function buildRouteMapImage(pts, statusCb){
     return [ lonToTileX(p.lng,zoom)*TILE-left, latToTileY(p.lat,zoom)*TILE-top ];
   }
 
-  if(pts.length>1){
-    ctx.strokeStyle='#2f6fed';
-    ctx.lineWidth=4;
-    ctx.setLineDash([]);
+  // เส้นทาง: ขอบเส้นสีขาวหนา (ให้ดูคล้าย Google Maps) แล้วทับด้วยเส้นสีน้ำเงินตรงกลาง
+  if(linePts.length>1){
+    ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.strokeStyle='#ffffff'; ctx.lineWidth=8;
     ctx.beginPath();
-    pts.forEach((p,i)=>{
-      const [x,y]=toXY(p);
-      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-    });
+    linePts.forEach((p,i)=>{ const [x,y]=toXY(p); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+    ctx.stroke();
+    ctx.strokeStyle='#4285F4'; ctx.lineWidth=5;
+    ctx.beginPath();
+    linePts.forEach((p,i)=>{ const [x,y]=toXY(p); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
     ctx.stroke();
   }
+
+  // หมุดแต่ละจุดที่บันทึกจริง (ไม่ใช่จุดของเส้นทางถนน)
   pts.forEach((p,i)=>{
     const [x,y]=toXY(p);
     ctx.beginPath();
     ctx.arc(x,y,11,0,Math.PI*2);
-    ctx.fillStyle = i===0 ? '#2ecc71' : (i===pts.length-1 ? '#e74c3c' : '#ffb238');
+    ctx.fillStyle = i===0 ? '#2ecc71' : (i===pts.length-1 ? '#ea4335' : '#ffb238');
     ctx.fill();
     ctx.lineWidth=2; ctx.strokeStyle='#0f1116'; ctx.stroke();
     ctx.fillStyle='#0f1116';
@@ -931,13 +966,45 @@ async function buildRouteMapImage(pts, statusCb){
     ctx.fillText(String(i+1), x, y);
   });
 
-  // เครดิตแหล่งข้อมูลแผนที่ (จำเป็นตามเงื่อนไขการใช้งานของ OpenStreetMap)
+  // กล่องข้อมูลระยะทาง/เวลา สไตล์ Google Maps (มุมบนซ้าย)
+  if(route){
+    const label1 = fmtDurationTH(route.durationS);
+    const label2 = `(${fmtKmTH(route.distanceM)})`;
+    ctx.font='bold 20px sans-serif';
+    const w1 = ctx.measureText(label1).width;
+    ctx.font='14px sans-serif';
+    const w2 = ctx.measureText(label2).width;
+    const boxW = Math.max(w1,w2) + 34, boxH = 54;
+    const bx=14, by=14, r=10;
+    ctx.fillStyle='rgba(255,255,255,0.96)';
+    ctx.beginPath();
+    ctx.moveTo(bx+r,by);
+    ctx.arcTo(bx+boxW,by,bx+boxW,by+boxH,r);
+    ctx.arcTo(bx+boxW,by+boxH,bx,by+boxH,r);
+    ctx.arcTo(bx,by+boxH,bx,by,r);
+    ctx.arcTo(bx,by,bx+boxW,by,r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle='#1a73e8';
+    ctx.font='bold 20px sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillText(label1, bx+16, by+8);
+    ctx.fillStyle='#3c4043';
+    ctx.font='14px sans-serif';
+    ctx.fillText(label2, bx+16, by+32);
+  }
+
+  // เครดิตแหล่งข้อมูลแผนที่ (จำเป็นตามเงื่อนไขการใช้งานของ OpenStreetMap/OSRM)
   ctx.fillStyle='rgba(255,255,255,0.85)';
   ctx.fillRect(0,H-16,W,16);
   ctx.fillStyle='#333';
   ctx.font='10px sans-serif';
   ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText('แผนที่: © OpenStreetMap contributors — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ ไม่ใช่เส้นทางถนนจริง', 4, H-8);
+  ctx.fillText(
+    route ? '© OpenStreetMap contributors — เส้นทางคำนวณโดย OSRM ตามถนนจริง'
+          : '© OpenStreetMap contributors — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ (คำนวณเส้นทางจริงไม่สำเร็จ)',
+    4, H-8
+  );
 
   return canvas.toDataURL('image/png');
 }
@@ -977,13 +1044,13 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
       if(r.startPhoto){
         children.push(new Paragraph({ text:'รูปไมล์เริ่มวัน', spacing:{before:150} }));
         try{
-          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(r.startPhoto), transformation:{width:320,height:213} }) ] }));
+          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(r.startPhoto), transformation:{width:288,height:216} }) ] }));
         }catch(e){ console.error('embed start photo failed', e); }
       }
       if(r.endPhoto){
         children.push(new Paragraph({ text:'รูปไมล์จบวัน', spacing:{before:150} }));
         try{
-          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(r.endPhoto), transformation:{width:320,height:213} }) ] }));
+          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(r.endPhoto), transformation:{width:288,height:216} }) ] }));
         }catch(e){ console.error('embed end photo failed', e); }
       }
 
