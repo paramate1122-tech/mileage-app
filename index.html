@@ -266,9 +266,24 @@
         </button>
       </div>
     </div>
-    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ไฟล์ Word จะมีเฉพาะ วันที่ / รูปไมล์เริ่ม-จบวัน / แผนที่เส้นทาง ของทุกวันในเดือนนั้น. ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
+    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ไฟล์ Word จะมีเฉพาะ วันที่ / รูปไมล์เริ่ม-จบวัน / แผนที่เส้นทาง ของทุกวันในเดือนนั้น (วันละ 1 หน้า). แผนที่จะดึงจาก Google Maps ถ้าตั้งค่า API key ไว้ ไม่งั้นใช้ OpenStreetMap แทน. ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
+  </div>
+
+  <!-- GOOGLE MAPS API KEY -->
+  <div class="card">
+    <h2>Google Maps API key (สำหรับแผนที่ในรายงาน Word)</h2>
+    <div class="odo-input-col">
+      <label for="gmapsKeyInput">ใส่ API key แล้วกดบันทึก — ถ้าไม่ใส่ ระบบจะใช้แผนที่ OpenStreetMap แทนโดยอัตโนมัติ</label>
+      <input type="text" id="gmapsKeyInput" placeholder="AIzaSy..." style="background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text); font-family:var(--mono); font-size:13px; padding:10px;">
+    </div>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn btn-ghost btn-sm" id="gmapsKeySaveBtn" style="flex:1;">บันทึกคีย์</button>
+      <button class="btn btn-ghost btn-sm" id="gmapsKeyClearBtn" style="flex:1;">ล้างคีย์</button>
+    </div>
+    <div class="hint" id="gmapsKeyStatus"></div>
   </div>
   </div>
+
 
 </div>
 
@@ -875,7 +890,94 @@ function fmtKmTH(meters){
   return (meters/1000).toLocaleString(undefined,{maximumFractionDigits:1})+' กม.';
 }
 
-// ประกอบภาพแผนที่จริงจากกระเบื้อง OpenStreetMap (ฟรี ไม่ต้องใช้ API key) พร้อมเส้นทางจริง/ระยะทาง/เวลา แบบสไตล์ Google Maps
+// ---------- Google Maps Static API (ถ้าผู้ใช้ตั้งค่า API key ไว้) ----------
+const GMAPS_KEY_STORAGE = 'gmaps_api_key';
+
+// เข้ารหัสเส้นทาง (lat,lng หลายจุด) แบบ Google Encoded Polyline เพื่อยัดใน URL ได้สั้นลงมาก
+function encodePolyline(coords){
+  let str='', prevLat=0, prevLng=0;
+  const encNum = n=>{
+    n = n<0 ? ~(n<<1) : (n<<1);
+    let s='';
+    while(n>=0x20){ s+=String.fromCharCode((0x20|(n&0x1f))+63); n>>=5; }
+    s+=String.fromCharCode(n+63);
+    return s;
+  };
+  coords.forEach(({lat,lng})=>{
+    const lat5=Math.round(lat*1e5), lng5=Math.round(lng*1e5);
+    str += encNum(lat5-prevLat) + encNum(lng5-prevLng);
+    prevLat=lat5; prevLng=lng5;
+  });
+  return str;
+}
+
+// ดึงภาพแผนที่จริงจาก Google Maps Static API (ต้องมี API key ของผู้ใช้เอง)
+async function buildGoogleStaticMapImage(pts, linePts, route, apiKey, W, H){
+  const params = new URLSearchParams();
+  params.set('size', `${W}x${H}`);
+  params.set('scale', '2');
+  params.set('maptype', 'roadmap');
+  params.set('format', 'png');
+  if(linePts.length>1){
+    params.append('path', `color:0x4285F4ff|weight:5|enc:${encodePolyline(linePts)}`);
+  }
+  pts.forEach((p,i)=>{
+    const color = i===0 ? '0x2ecc71' : (i===pts.length-1 ? '0xea4335' : '0xffb238');
+    params.append('markers', `color:${color}|label:${i+1}|${p.lat},${p.lng}`);
+  });
+  params.set('key', apiKey);
+  const url = `https://maps.googleapis.com/maps/api/staticmap?${params.toString()}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('Google Static Maps HTTP '+res.status);
+  const blob = await res.blob();
+  if(blob.type && !blob.type.startsWith('image/')) throw new Error('Google Static Maps ไม่คืนรูปภาพ (คีย์ผิดหรือยังไม่เปิดใช้ API)');
+  const img = await new Promise((resolve,reject)=>{
+    const im = new Image();
+    im.onload=()=>resolve(im);
+    im.onerror=reject;
+    im.src = URL.createObjectURL(blob);
+  });
+  return img;
+}
+
+// กล่องข้อมูลระยะทาง/เวลา สไตล์ Google Maps (มุมบนซ้าย) — ใช้ร่วมกันทั้งแผนที่ Google และ OSM
+function drawRouteInfoBox(ctx, route){
+  if(!route) return;
+  const label1 = fmtDurationTH(route.durationS);
+  const label2 = `(${fmtKmTH(route.distanceM)})`;
+  ctx.font='bold 20px sans-serif';
+  const w1 = ctx.measureText(label1).width;
+  ctx.font='14px sans-serif';
+  const w2 = ctx.measureText(label2).width;
+  const boxW = Math.max(w1,w2) + 34, boxH = 54;
+  const bx=14, by=14, r=10;
+  ctx.fillStyle='rgba(255,255,255,0.96)';
+  ctx.beginPath();
+  ctx.moveTo(bx+r,by);
+  ctx.arcTo(bx+boxW,by,bx+boxW,by+boxH,r);
+  ctx.arcTo(bx+boxW,by+boxH,bx,by+boxH,r);
+  ctx.arcTo(bx,by+boxH,bx,by,r);
+  ctx.arcTo(bx,by,bx+boxW,by,r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle='#1a73e8';
+  ctx.font='bold 20px sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText(label1, bx+16, by+8);
+  ctx.fillStyle='#3c4043';
+  ctx.font='14px sans-serif';
+  ctx.fillText(label2, bx+16, by+32);
+}
+function drawMapCredit(ctx, W, H, text){
+  ctx.fillStyle='rgba(255,255,255,0.85)';
+  ctx.fillRect(0,H-16,W,16);
+  ctx.fillStyle='#333';
+  ctx.font='10px sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText(text, 4, H-8);
+}
+
+// ประกอบภาพแผนที่เส้นทางพร้อมระยะทาง/เวลา — ใช้ Google Maps Static API ถ้ามี API key ตั้งไว้ ไม่งั้น fallback เป็น OpenStreetMap (ฟรี ไม่ต้องใช้คีย์)
 async function buildRouteMapImage(pts, statusCb){
   if(!pts.length) return null;
   const TILE = 256;
@@ -884,6 +986,24 @@ async function buildRouteMapImage(pts, statusCb){
   if(statusCb) statusCb('กำลังคำนวณเส้นทางจริง…');
   const route = await fetchDrivingRoute(pts);
   const linePts = route ? route.coords : pts; // ใช้เส้นทางจริงถ้ามี ไม่งั้น fallback เป็นเส้นตรงระหว่างจุด
+
+  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
+  if(apiKey){
+    if(statusCb) statusCb('กำลังโหลดแผนที่จาก Google Maps…');
+    try{
+      const img = await buildGoogleStaticMapImage(pts, linePts, route, apiKey, W, H);
+      const canvas=document.createElement('canvas');
+      canvas.width=W; canvas.height=H;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, W, H);
+      drawRouteInfoBox(ctx, route);
+      drawMapCredit(ctx, W, H, route ? 'Map data ©2026 Google — เส้นทางคำนวณโดย OSRM ตามถนนจริง' : 'Map data ©2026 Google — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ');
+      return canvas.toDataURL('image/png');
+    }catch(e){
+      console.error('Google Static Maps failed, falling back to OSM', e);
+      if(statusCb) statusCb('Google Maps ใช้งานไม่ได้ กำลังใช้แผนที่สำรอง…');
+    }
+  }
 
   let minLat=Math.min(...linePts.map(p=>p.lat)), maxLat=Math.max(...linePts.map(p=>p.lat));
   let minLng=Math.min(...linePts.map(p=>p.lng)), maxLng=Math.max(...linePts.map(p=>p.lng));
@@ -958,45 +1078,9 @@ async function buildRouteMapImage(pts, statusCb){
     ctx.fillText(String(i+1), x, y);
   });
 
-  // กล่องข้อมูลระยะทาง/เวลา สไตล์ Google Maps (มุมบนซ้าย)
-  if(route){
-    const label1 = fmtDurationTH(route.durationS);
-    const label2 = `(${fmtKmTH(route.distanceM)})`;
-    ctx.font='bold 20px sans-serif';
-    const w1 = ctx.measureText(label1).width;
-    ctx.font='14px sans-serif';
-    const w2 = ctx.measureText(label2).width;
-    const boxW = Math.max(w1,w2) + 34, boxH = 54;
-    const bx=14, by=14, r=10;
-    ctx.fillStyle='rgba(255,255,255,0.96)';
-    ctx.beginPath();
-    ctx.moveTo(bx+r,by);
-    ctx.arcTo(bx+boxW,by,bx+boxW,by+boxH,r);
-    ctx.arcTo(bx+boxW,by+boxH,bx,by+boxH,r);
-    ctx.arcTo(bx,by+boxH,bx,by,r);
-    ctx.arcTo(bx,by,bx+boxW,by,r);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle='#1a73e8';
-    ctx.font='bold 20px sans-serif';
-    ctx.textAlign='left'; ctx.textBaseline='top';
-    ctx.fillText(label1, bx+16, by+8);
-    ctx.fillStyle='#3c4043';
-    ctx.font='14px sans-serif';
-    ctx.fillText(label2, bx+16, by+32);
-  }
-
-  // เครดิตแหล่งข้อมูลแผนที่ (จำเป็นตามเงื่อนไขการใช้งานของ OpenStreetMap/OSRM)
-  ctx.fillStyle='rgba(255,255,255,0.85)';
-  ctx.fillRect(0,H-16,W,16);
-  ctx.fillStyle='#333';
-  ctx.font='10px sans-serif';
-  ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText(
-    route ? '© OpenStreetMap contributors — เส้นทางคำนวณโดย OSRM ตามถนนจริง'
-          : '© OpenStreetMap contributors — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ (คำนวณเส้นทางจริงไม่สำเร็จ)',
-    4, H-8
-  );
+  drawRouteInfoBox(ctx, route);
+  drawMapCredit(ctx, W, H, route ? '© OpenStreetMap contributors — เส้นทางคำนวณโดย OSRM ตามถนนจริง'
+          : '© OpenStreetMap contributors — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ (คำนวณเส้นทางจริงไม่สำเร็จ)');
 
   return canvas.toDataURL('image/png');
 }
@@ -1071,6 +1155,34 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
     btn.disabled = false;
   }
 });
+
+// ---------- Google Maps API key ----------
+(function initGmapsKeyUI(){
+  // ตั้งค่าคีย์เริ่มต้นให้อัตโนมัติในการเปิดใช้ครั้งแรก (ผู้ใช้ให้คีย์นี้ไว้ตอนตั้งค่าแอป) — เปลี่ยน/ลบได้จากช่องด้านล่างเสมอ
+  if(localStorage.getItem(GMAPS_KEY_STORAGE) === null){
+    localStorage.setItem(GMAPS_KEY_STORAGE, 'AIzaSyD5S9E2v_9RRT1VIm6RdQ0nstgdQ3kL3fg');
+  }
+  const input = document.getElementById('gmapsKeyInput');
+  const status = document.getElementById('gmapsKeyStatus');
+  const saved = localStorage.getItem(GMAPS_KEY_STORAGE);
+  if(saved){
+    input.value = saved;
+    status.textContent = 'บันทึกคีย์ไว้แล้ว — รายงาน Word จะใช้แผนที่จาก Google Maps';
+  } else {
+    status.textContent = 'ยังไม่ได้ตั้งค่าคีย์ — รายงาน Word จะใช้แผนที่ OpenStreetMap แทน';
+  }
+  document.getElementById('gmapsKeySaveBtn').addEventListener('click', ()=>{
+    const v = input.value.trim();
+    if(!v){ status.textContent = 'กรุณาใส่ API key ก่อนกดบันทึก'; return; }
+    localStorage.setItem(GMAPS_KEY_STORAGE, v);
+    status.textContent = 'บันทึกคีย์ไว้แล้ว — รายงาน Word จะใช้แผนที่จาก Google Maps';
+  });
+  document.getElementById('gmapsKeyClearBtn').addEventListener('click', ()=>{
+    localStorage.removeItem(GMAPS_KEY_STORAGE);
+    input.value = '';
+    status.textContent = 'ล้างคีย์แล้ว — รายงาน Word จะใช้แผนที่ OpenStreetMap แทน';
+  });
+})();
 
 // ---------- backup / restore ----------
 document.getElementById('backupBtn').addEventListener('click', ()=>{
