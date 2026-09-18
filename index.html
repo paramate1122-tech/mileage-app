@@ -1026,7 +1026,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
 
       btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length})`;
 
-      children.push(new Paragraph({ text:fmtDateShort(d), heading:HeadingLevel.HEADING_2, spacing:{before:400} }));
+      children.push(new Paragraph({ text:fmtDateShort(d), heading:HeadingLevel.HEADING_2, spacing:{before:400}, pageBreakBefore: di>0 }));
 
       const photoRunChildren = [];
       if(r.startPhoto){
