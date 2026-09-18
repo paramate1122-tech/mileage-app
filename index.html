@@ -320,6 +320,10 @@ function fmtDateTH(dateStr){
   const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   return `${parseInt(d)} ${months[parseInt(m)-1]} ${parseInt(y)+543}`;
 }
+function fmtDateShort(dateStr){
+  const [y,m,d] = dateStr.split('-');
+  return `${parseInt(d)}/${parseInt(m)}/${String(parseInt(y)%100).padStart(2,'0')}`;
+}
 function dlg(title, body){
   document.getElementById('msgTitle').textContent = title;
   document.getElementById('msgBody').textContent = body;
@@ -1022,19 +1026,24 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
 
       btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length})`;
 
-      children.push(new Paragraph({ text:fmtDateTH(d), heading:HeadingLevel.HEADING_2, spacing:{before:400} }));
+      children.push(new Paragraph({ text:fmtDateShort(d), heading:HeadingLevel.HEADING_2, spacing:{before:400} }));
 
+      const photoRunChildren = [];
       if(r.startPhoto){
-        children.push(new Paragraph({ text:'รูปไมล์เริ่มวัน', spacing:{before:150} }));
         try{
-          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(r.startPhoto), transformation:{width:288,height:216} }) ] }));
+          photoRunChildren.push(new ImageRun({ data:b64ToUint8(r.startPhoto), transformation:{width:220,height:165} }));
         }catch(e){ console.error('embed start photo failed', e); }
       }
       if(r.endPhoto){
-        children.push(new Paragraph({ text:'รูปไมล์จบวัน', spacing:{before:150} }));
+        if(photoRunChildren.length){
+          photoRunChildren.push(new TextRun({ text:'   ' }));
+        }
         try{
-          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(r.endPhoto), transformation:{width:288,height:216} }) ] }));
+          photoRunChildren.push(new ImageRun({ data:b64ToUint8(r.endPhoto), transformation:{width:220,height:165} }));
         }catch(e){ console.error('embed end photo failed', e); }
+      }
+      if(photoRunChildren.length){
+        children.push(new Paragraph({ children:photoRunChildren, spacing:{before:150} }));
       }
 
       const pts = (r.points||[]).filter(p=>p!=null);
@@ -1042,8 +1051,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
         try{
           const mapDataUrl = await buildRouteMapImage(pts, t=>{ btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length}) ${t}`; });
           if(mapDataUrl){
-            children.push(new Paragraph({ text:'แผนที่เส้นทาง:', spacing:{before:120} }));
-            children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapDataUrl), transformation:{width:480,height:315} }) ] }));
+            children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapDataUrl), transformation:{width:480,height:315} }) ], spacing:{before:150} }));
           }
         }catch(e){ console.error('build map image failed', e); }
       }
