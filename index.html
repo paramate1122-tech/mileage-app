@@ -278,9 +278,11 @@
     </div>
     <div class="btn-row" style="margin-top:10px;">
       <button class="btn btn-ghost btn-sm" id="gmapsKeySaveBtn" style="flex:1;">บันทึกคีย์</button>
+      <button class="btn btn-ghost btn-sm" id="gmapsKeyTestBtn" style="flex:1;">ทดสอบคีย์</button>
       <button class="btn btn-ghost btn-sm" id="gmapsKeyClearBtn" style="flex:1;">ล้างคีย์</button>
     </div>
     <div class="hint" id="gmapsKeyStatus"></div>
+    <img id="gmapsKeyTestImg" style="display:none; width:100%; border-radius:10px; margin-top:10px;">
   </div>
   </div>
 
@@ -928,13 +930,17 @@ async function buildGoogleStaticMapImage(pts, linePts, route, apiKey, W, H){
   params.set('key', apiKey);
   const url = `https://maps.googleapis.com/maps/api/staticmap?${params.toString()}`;
   const res = await fetch(url);
-  if(!res.ok) throw new Error('Google Static Maps HTTP '+res.status);
+  const ct = res.headers.get('content-type') || '';
+  if(!res.ok || !ct.startsWith('image')){
+    let detail = '';
+    try{ detail = await res.text(); }catch(e){}
+    throw new Error(`Google Static Maps ปฏิเสธคำขอ (HTTP ${res.status}): ${(detail||ct).slice(0,400)}`);
+  }
   const blob = await res.blob();
-  if(blob.type && !blob.type.startsWith('image/')) throw new Error('Google Static Maps ไม่คืนรูปภาพ (คีย์ผิดหรือยังไม่เปิดใช้ API)');
   const img = await new Promise((resolve,reject)=>{
     const im = new Image();
     im.onload=()=>resolve(im);
-    im.onerror=reject;
+    im.onerror=()=>reject(new Error('โหลดรูปภาพที่ได้จาก Google ไม่สำเร็จ'));
     im.src = URL.createObjectURL(blob);
   });
   return img;
@@ -978,7 +984,7 @@ function drawMapCredit(ctx, W, H, text){
 }
 
 // ประกอบภาพแผนที่เส้นทางพร้อมระยะทาง/เวลา — ใช้ Google Maps Static API ถ้ามี API key ตั้งไว้ ไม่งั้น fallback เป็น OpenStreetMap (ฟรี ไม่ต้องใช้คีย์)
-async function buildRouteMapImage(pts, statusCb){
+async function buildRouteMapImage(pts, statusCb, onGmapsError){
   if(!pts.length) return null;
   const TILE = 256;
   const W = 640, H = 420;
@@ -1001,6 +1007,7 @@ async function buildRouteMapImage(pts, statusCb){
       return canvas.toDataURL('image/png');
     }catch(e){
       console.error('Google Static Maps failed, falling back to OSM', e);
+      if(onGmapsError) onGmapsError(e && e.message ? e.message : String(e));
       if(statusCb) statusCb('Google Maps ใช้งานไม่ได้ กำลังใช้แผนที่สำรอง…');
     }
   }
@@ -1103,6 +1110,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
       new Paragraph({ text:'รายงานเลขไมล์และเส้นทางประจำเดือน', heading:HeadingLevel.HEADING_1 }),
       new Paragraph({ text:document.getElementById('monthSelect').selectedOptions[0].textContent, spacing:{after:300} })
     ];
+    let gmapsError = null;
 
     for(let di=0; di<dates.length; di++){
       const d = dates[di];
@@ -1133,7 +1141,11 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
       const pts = (r.points||[]).filter(p=>p!=null);
       if(pts.length){
         try{
-          const mapDataUrl = await buildRouteMapImage(pts, t=>{ btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length}) ${t}`; });
+          const mapDataUrl = await buildRouteMapImage(
+            pts,
+            t=>{ btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length}) ${t}`; },
+            msg=>{ if(!gmapsError) gmapsError = msg; }
+          );
           if(mapDataUrl){
             children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapDataUrl), transformation:{width:480,height:315} }) ], spacing:{before:150} }));
           }
@@ -1147,6 +1159,10 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
     a.href = URL.createObjectURL(blob);
     a.download = `mileage-report-${month}.docx`;
     a.click();
+
+    if(gmapsError){
+      dlg('ใช้แผนที่ OpenStreetMap แทน Google Maps', 'ดึงแผนที่จาก Google Maps ไม่สำเร็จ จึงใช้ OpenStreetMap แทนในรายงานนี้\n\nสาเหตุ: ' + gmapsError);
+    }
   }catch(err){
     console.error('Word export error:', err);
     dlg('สร้างไฟล์ไม่สำเร็จ', 'เกิดข้อผิดพลาดระหว่างสร้างไฟล์ Word: ' + (err && err.message ? err.message : 'ไม่ทราบสาเหตุ'));
@@ -1181,6 +1197,33 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
     localStorage.removeItem(GMAPS_KEY_STORAGE);
     input.value = '';
     status.textContent = 'ล้างคีย์แล้ว — รายงาน Word จะใช้แผนที่ OpenStreetMap แทน';
+  });
+  document.getElementById('gmapsKeyTestBtn').addEventListener('click', async ()=>{
+    const v = input.value.trim();
+    const testImg = document.getElementById('gmapsKeyTestImg');
+    testImg.style.display = 'none';
+    if(!v){ status.textContent = 'กรุณาใส่ API key ก่อนกดทดสอบ'; return; }
+    status.textContent = 'กำลังทดสอบคีย์…';
+    try{
+      const params = new URLSearchParams({
+        center:'13.7563,100.5018', zoom:'12', size:'400x250', scale:'2',
+        maptype:'roadmap', format:'png', key:v
+      });
+      const url = `https://maps.googleapis.com/maps/api/staticmap?${params.toString()}`;
+      const res = await fetch(url);
+      const ct = res.headers.get('content-type') || '';
+      if(!res.ok || !ct.startsWith('image')){
+        let detail = '';
+        try{ detail = await res.text(); }catch(e){}
+        throw new Error(`HTTP ${res.status}: ${(detail||ct).slice(0,400)}`);
+      }
+      const blob = await res.blob();
+      testImg.src = URL.createObjectURL(blob);
+      testImg.style.display = 'block';
+      status.textContent = 'คีย์ใช้งานได้ ✓ ดึงแผนที่จาก Google Maps สำเร็จ';
+    }catch(e){
+      status.textContent = 'คีย์ใช้งานไม่ได้ — ' + (e && e.message ? e.message : String(e));
+    }
   });
 })();
 
