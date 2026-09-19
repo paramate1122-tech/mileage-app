@@ -271,9 +271,9 @@
 
   <!-- GOOGLE MAPS API KEY -->
   <div class="card">
-    <h2>Google Maps API key (สำหรับแผนที่ในรายงาน Word)</h2>
+    <h2>Google Maps API key (สำหรับแผนที่/เส้นทาง/ชื่อสถานที่ในรายงาน)</h2>
     <div class="odo-input-col">
-      <label for="gmapsKeyInput">ใส่ API key แล้วกดบันทึก — ถ้าไม่ใส่ ระบบจะใช้แผนที่ OpenStreetMap แทนโดยอัตโนมัติ</label>
+      <label for="gmapsKeyInput">ใส่ API key แล้วกดบันทึก — ถ้าไม่ใส่ ระบบจะใช้ OpenStreetMap/OSRM แทนโดยอัตโนมัติ ต้องเปิดใช้งาน 4 API นี้ในโปรเจกต์: Maps Static API, Maps JavaScript API, Directions API, Places API (Legacy)</label>
       <input type="text" id="gmapsKeyInput" placeholder="AIzaSy..." style="background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text); font-family:var(--mono); font-size:13px; padding:10px;">
     </div>
     <div class="btn-row" style="margin-top:10px;">
@@ -285,6 +285,7 @@
     <img id="gmapsKeyTestImg" style="display:none; width:100%; border-radius:10px; margin-top:10px;">
   </div>
   </div>
+
 
 
 </div>
@@ -721,7 +722,8 @@ function captureSlot(i){
     pts[i] = p;
     saveDB(); renderPointSlots();
     document.getElementById('gpsLive').textContent = `กำลังค้นหาชื่อสถานที่จุดที่ ${i+1}…`;
-    const name = await reverseGeocode(p.lat, p.lng);
+    let name = await findNearestGooglePlace(p.lat, p.lng);
+    if(!name) name = await reverseGeocode(p.lat, p.lng);
     p.label = name || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
     saveDB(); renderPointSlots();
     document.getElementById('gpsLive').textContent = `บันทึกจุดที่ ${i+1}: ${p.label}`;
@@ -895,6 +897,89 @@ function fmtKmTH(meters){
 // ---------- Google Maps Static API (ถ้าผู้ใช้ตั้งค่า API key ไว้) ----------
 const GMAPS_KEY_STORAGE = 'gmaps_api_key';
 
+// โหลด Google Maps JavaScript API (ใช้สำหรับ Directions + Places ซึ่งเรียกตรงจากเบราว์เซอร์ผ่าน REST ไม่ได้เพราะติด CORS)
+let _gmapsJsLoadPromise = null;
+let _gmapsJsLoadedKey = null;
+function loadGoogleMapsJS(apiKey){
+  if(window.google && window.google.maps && window.google.maps.places && _gmapsJsLoadedKey === apiKey){
+    return Promise.resolve();
+  }
+  if(_gmapsJsLoadPromise && _gmapsJsLoadedKey === apiKey) return _gmapsJsLoadPromise;
+  _gmapsJsLoadedKey = apiKey;
+  _gmapsJsLoadPromise = new Promise((resolve, reject)=>{
+    const cbName = '__gmapsInit_' + Date.now();
+    window[cbName] = ()=>{ delete window[cbName]; resolve(); };
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=${cbName}`;
+    s.async = true;
+    s.onerror = ()=>reject(new Error('โหลด Google Maps JavaScript API ไม่สำเร็จ (เช็คว่าเปิดใช้ "Maps JavaScript API" ในโปรเจกต์แล้วหรือยัง)'));
+    document.head.appendChild(s);
+  });
+  return _gmapsJsLoadPromise;
+}
+
+// PlacesService ต้องผูกกับ google.maps.Map instance (แม้ไม่ต้องแสดงแผนที่จริงก็ตาม) — ใช้ div ที่ซ่อนไว้
+let _placesServiceCache = null;
+function getPlacesService(){
+  if(_placesServiceCache) return _placesServiceCache;
+  const div = document.createElement('div');
+  const map = new google.maps.Map(div, {center:{lat:13.7563,lng:100.5018}, zoom:15});
+  _placesServiceCache = new google.maps.places.PlacesService(map);
+  return _placesServiceCache;
+}
+
+// หาสถานที่ใกล้ที่สุดจาก Google Maps (เช่น ชื่อคอนโด/โรงงาน/ร้านค้า) — คืนค่า null ถ้าไม่มีคีย์หรือหาไม่พบ
+async function findNearestGooglePlace(lat, lng){
+  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
+  if(!apiKey) return null;
+  try{
+    await loadGoogleMapsJS(apiKey);
+    const service = getPlacesService();
+    const search = (req) => new Promise(resolve=>{
+      service.nearbySearch(req, (results, status)=>{
+        if(status === google.maps.places.PlacesServiceStatus.OK && results && results.length){
+          resolve(results[0].name);
+        } else resolve(null);
+      });
+    });
+    // ลองค้นแบบเรียงตามระยะทางก่อน (ต้องระบุ type)
+    let name = await search({ location:{lat,lng}, rankBy: google.maps.places.RankBy.DISTANCE, type:'point_of_interest' });
+    if(!name){
+      // ถ้าไม่เจอ ลองค้นในรัศมีแคบๆ โดยไม่จำกัดประเภท
+      name = await search({ location:{lat,lng}, radius:120 });
+    }
+    return name;
+  }catch(e){
+    console.error('Google Places lookup failed', e);
+    return null;
+  }
+}
+
+// คำนวณเส้นทางจริงหลายจุด (สูงสุด 5 จุด) ด้วย Google Directions API ผ่าน DirectionsService
+async function fetchGoogleDirections(pts){
+  if(pts.length < 2) return null;
+  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
+  if(!apiKey) return null;
+  await loadGoogleMapsJS(apiKey);
+  const ds = new google.maps.DirectionsService();
+  const origin = {lat:pts[0].lat, lng:pts[0].lng};
+  const destination = {lat:pts[pts.length-1].lat, lng:pts[pts.length-1].lng};
+  const waypoints = pts.slice(1,-1).map(p=>({location:{lat:p.lat,lng:p.lng}, stopover:true}));
+  return await new Promise((resolve, reject)=>{
+    ds.route({ origin, destination, waypoints, optimizeWaypoints:false, travelMode: google.maps.TravelMode.DRIVING }, (result, status)=>{
+      if(status === 'OK' && result.routes && result.routes[0]){
+        const route = result.routes[0];
+        let distanceM=0, durationS=0;
+        route.legs.forEach(leg=>{ distanceM += leg.distance.value; durationS += leg.duration.value; });
+        const coords = (route.overview_path||[]).map(ll=>({lat:ll.lat(), lng:ll.lng()}));
+        resolve({ distanceM, durationS, coords });
+      } else {
+        reject(new Error('Google Directions ปฏิเสธคำขอ: '+status));
+      }
+    });
+  });
+}
+
 // เข้ารหัสเส้นทาง (lat,lng หลายจุด) แบบ Google Encoded Polyline เพื่อยัดใน URL ได้สั้นลงมาก
 function encodePolyline(coords){
   let str='', prevLat=0, prevLng=0;
@@ -983,17 +1068,31 @@ function drawMapCredit(ctx, W, H, text){
   ctx.fillText(text, 4, H-8);
 }
 
-// ประกอบภาพแผนที่เส้นทางพร้อมระยะทาง/เวลา — ใช้ Google Maps Static API ถ้ามี API key ตั้งไว้ ไม่งั้น fallback เป็น OpenStreetMap (ฟรี ไม่ต้องใช้คีย์)
+// ประกอบภาพแผนที่เส้นทางพร้อมระยะทาง/เวลา — ใช้ Google Maps ทั้งภาพแผนที่และคำนวณเส้นทาง (Directions API) ถ้ามี API key ตั้งไว้ ไม่งั้น fallback เป็น OpenStreetMap + OSRM (ฟรี ไม่ต้องใช้คีย์)
 async function buildRouteMapImage(pts, statusCb, onGmapsError){
   if(!pts.length) return null;
   const TILE = 256;
   const W = 640, H = 420;
+  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
 
-  if(statusCb) statusCb('กำลังคำนวณเส้นทางจริง…');
-  const route = await fetchDrivingRoute(pts);
+  let route = null;
+  let usedGoogleDirections = false;
+  if(apiKey && pts.length>1){
+    if(statusCb) statusCb('กำลังคำนวณเส้นทางจาก Google Maps…');
+    try{
+      route = await fetchGoogleDirections(pts);
+      usedGoogleDirections = true;
+    }catch(e){
+      console.error('Google Directions failed, falling back to OSRM', e);
+      if(onGmapsError) onGmapsError(e && e.message ? e.message : String(e));
+    }
+  }
+  if(!route){
+    if(statusCb) statusCb('กำลังคำนวณเส้นทางจริง (OSRM)…');
+    route = await fetchDrivingRoute(pts);
+  }
   const linePts = route ? route.coords : pts; // ใช้เส้นทางจริงถ้ามี ไม่งั้น fallback เป็นเส้นตรงระหว่างจุด
 
-  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
   if(apiKey){
     if(statusCb) statusCb('กำลังโหลดแผนที่จาก Google Maps…');
     try{
@@ -1003,8 +1102,10 @@ async function buildRouteMapImage(pts, statusCb, onGmapsError){
       const ctx=canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, W, H);
       drawRouteInfoBox(ctx, route);
-      drawMapCredit(ctx, W, H, route ? 'Map data ©2026 Google — เส้นทางคำนวณโดย OSRM ตามถนนจริง' : 'Map data ©2026 Google — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ');
-      return canvas.toDataURL('image/png');
+      drawMapCredit(ctx, W, H, usedGoogleDirections
+        ? 'Map data ©2026 Google — เส้นทางคำนวณโดย Google Maps Directions'
+        : (route ? 'Map data ©2026 Google — เส้นทางคำนวณโดย OSRM ตามถนนจริง' : 'Map data ©2026 Google — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ'));
+      return { dataUrl: canvas.toDataURL('image/png'), route };
     }catch(e){
       console.error('Google Static Maps failed, falling back to OSM', e);
       if(onGmapsError) onGmapsError(e && e.message ? e.message : String(e));
@@ -1086,10 +1187,11 @@ async function buildRouteMapImage(pts, statusCb, onGmapsError){
   });
 
   drawRouteInfoBox(ctx, route);
-  drawMapCredit(ctx, W, H, route ? '© OpenStreetMap contributors — เส้นทางคำนวณโดย OSRM ตามถนนจริง'
-          : '© OpenStreetMap contributors — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ (คำนวณเส้นทางจริงไม่สำเร็จ)');
+  drawMapCredit(ctx, W, H, route
+    ? (usedGoogleDirections ? '© OpenStreetMap contributors — เส้นทางคำนวณโดย Google Maps Directions' : '© OpenStreetMap contributors — เส้นทางคำนวณโดย OSRM ตามถนนจริง')
+    : '© OpenStreetMap contributors — เส้นเชื่อมจุดเป็นเส้นตรงโดยประมาณ (คำนวณเส้นทางจริงไม่สำเร็จ)');
 
-  return canvas.toDataURL('image/png');
+  return { dataUrl: canvas.toDataURL('image/png'), route };
 }
 
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
@@ -1141,14 +1243,23 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
       const pts = (r.points||[]).filter(p=>p!=null);
       if(pts.length){
         try{
-          const mapDataUrl = await buildRouteMapImage(
+          const mapResult = await buildRouteMapImage(
             pts,
             t=>{ btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length}) ${t}`; },
             msg=>{ if(!gmapsError) gmapsError = msg; }
           );
-          if(mapDataUrl){
-            children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapDataUrl), transformation:{width:480,height:315} }) ], spacing:{before:150} }));
+          if(mapResult && mapResult.dataUrl){
+            children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapResult.dataUrl), transformation:{width:480,height:315} }) ], spacing:{before:150} }));
           }
+          // รายชื่อจุดที่บันทึกไว้ + ระยะทางรวมของวันนั้น
+          const legendLines = pts.map((p,i)=> `${i+1}. ${p.label || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`}`);
+          if(mapResult && mapResult.route){
+            legendLines.push(`ระยะทางรวม: ${fmtKmTH(mapResult.route.distanceM)} (${fmtDurationTH(mapResult.route.durationS)})`);
+          }
+          children.push(new Paragraph({
+            children:[ new TextRun({ text: legendLines.join('   |   '), size:18, color:'555555' }) ],
+            spacing:{before:80}
+          }));
         }catch(e){ console.error('build map image failed', e); }
       }
     }
