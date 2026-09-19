@@ -1180,23 +1180,26 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   }
   const input = document.getElementById('gmapsKeyInput');
   const status = document.getElementById('gmapsKeyStatus');
+  const maskKey = k => k.length>10 ? `…${k.slice(-6)}` : k;
+  const refreshStatus = ()=>{
+    const cur = localStorage.getItem(GMAPS_KEY_STORAGE);
+    status.textContent = cur
+      ? `บันทึกคีย์ไว้แล้ว (${maskKey(cur)}) — รายงาน Word จะใช้แผนที่จาก Google Maps`
+      : 'ยังไม่ได้ตั้งค่าคีย์ — รายงาน Word จะใช้แผนที่ OpenStreetMap แทน';
+  };
   const saved = localStorage.getItem(GMAPS_KEY_STORAGE);
-  if(saved){
-    input.value = saved;
-    status.textContent = 'บันทึกคีย์ไว้แล้ว — รายงาน Word จะใช้แผนที่จาก Google Maps';
-  } else {
-    status.textContent = 'ยังไม่ได้ตั้งค่าคีย์ — รายงาน Word จะใช้แผนที่ OpenStreetMap แทน';
-  }
+  if(saved) input.value = saved;
+  refreshStatus();
   document.getElementById('gmapsKeySaveBtn').addEventListener('click', ()=>{
     const v = input.value.trim();
     if(!v){ status.textContent = 'กรุณาใส่ API key ก่อนกดบันทึก'; return; }
     localStorage.setItem(GMAPS_KEY_STORAGE, v);
-    status.textContent = 'บันทึกคีย์ไว้แล้ว — รายงาน Word จะใช้แผนที่จาก Google Maps';
+    refreshStatus();
   });
   document.getElementById('gmapsKeyClearBtn').addEventListener('click', ()=>{
     localStorage.removeItem(GMAPS_KEY_STORAGE);
     input.value = '';
-    status.textContent = 'ล้างคีย์แล้ว — รายงาน Word จะใช้แผนที่ OpenStreetMap แทน';
+    refreshStatus();
   });
   document.getElementById('gmapsKeyTestBtn').addEventListener('click', async ()=>{
     const v = input.value.trim();
@@ -1220,7 +1223,9 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
       const blob = await res.blob();
       testImg.src = URL.createObjectURL(blob);
       testImg.style.display = 'block';
-      status.textContent = 'คีย์ใช้งานได้ ✓ ดึงแผนที่จาก Google Maps สำเร็จ';
+      // ทดสอบผ่าน -> บันทึกคีย์นี้ให้อัตโนมัติ เพื่อไม่ให้ export ใช้คีย์เก่า/คีย์ว่างโดยไม่ตั้งใจ
+      localStorage.setItem(GMAPS_KEY_STORAGE, v);
+      status.textContent = `คีย์ใช้งานได้ ✓ และบันทึกไว้แล้ว (${maskKey(v)}) — export Word จะใช้ Google Maps`;
     }catch(e){
       status.textContent = 'คีย์ใช้งานไม่ได้ — ' + (e && e.message ? e.message : String(e));
     }
