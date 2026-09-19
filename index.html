@@ -878,7 +878,8 @@ async function fetchDrivingRoute(pts){
       return {
         distanceM: route.distance,
         durationS: route.duration,
-        coords: route.geometry.coordinates.map(c=>({lng:c[0], lat:c[1]})) // เรียงเป็น {lat,lng} ตามถนนจริง
+        coords: route.geometry.coordinates.map(c=>({lng:c[0], lat:c[1]})), // เรียงเป็น {lat,lng} ตามถนนจริง
+        legs: (route.legs||[]).map(l=>({distanceM:l.distance, durationS:l.duration})) // ระยะ/เวลาแยกเป็นช่วงๆ ระหว่างจุดที่บันทึก
       };
     }
   }catch(e){ /* เครือข่ายมีปัญหา หรือบริการไม่ว่าง — จะ fallback เป็นเส้นตรงแทน */ }
@@ -972,7 +973,8 @@ async function fetchGoogleDirections(pts){
         let distanceM=0, durationS=0;
         route.legs.forEach(leg=>{ distanceM += leg.distance.value; durationS += leg.duration.value; });
         const coords = (route.overview_path||[]).map(ll=>({lat:ll.lat(), lng:ll.lng()}));
-        resolve({ distanceM, durationS, coords });
+        const legs = route.legs.map(l=>({distanceM:l.distance.value, durationS:l.duration.value}));
+        resolve({ distanceM, durationS, coords, legs });
       } else {
         reject(new Error('Google Directions ปฏิเสธคำขอ: '+status));
       }
@@ -1066,6 +1068,118 @@ function drawMapCredit(ctx, W, H, text){
   ctx.font='10px sans-serif';
   ctx.textAlign='left'; ctx.textBaseline='middle';
   ctx.fillText(text, 4, H-8);
+}
+
+// กล่องเวลา/ระยะทางแบบเล็ก (มุมบนซ้าย) สำหรับภาพซูมจุดเดียว — สไตล์เดียวกับตอนกดหมุดใน Google Maps
+function drawSmallInfoBox(ctx, info){
+  const label1 = fmtDurationTH(info.durationS);
+  const label2 = `(${fmtKmTH(info.distanceM)})`;
+  ctx.font='bold 13px sans-serif';
+  const w1 = ctx.measureText(label1).width;
+  ctx.font='11px sans-serif';
+  const w2 = ctx.measureText(label2).width;
+  const boxW = Math.max(w1,w2) + 20, boxH = 34;
+  const bx=6, by=6, r=6;
+  ctx.fillStyle='rgba(255,255,255,0.96)';
+  ctx.beginPath();
+  ctx.moveTo(bx+r,by);
+  ctx.arcTo(bx+boxW,by,bx+boxW,by+boxH,r);
+  ctx.arcTo(bx+boxW,by+boxH,bx,by+boxH,r);
+  ctx.arcTo(bx,by+boxH,bx,by,r);
+  ctx.arcTo(bx,by,bx+boxW,by,r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle='#1a73e8';
+  ctx.font='bold 13px sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText(label1, bx+8, by+3);
+  ctx.fillStyle='#3c4043';
+  ctx.font='11px sans-serif';
+  ctx.fillText(label2, bx+8, by+18);
+}
+function closeupPinColor(idx, total){
+  return idx===0 ? '#2ecc71' : (idx===total-1 ? '#ea4335' : '#ffb238');
+}
+
+// ภาพซูมเฉพาะจุดที่บันทึกไว้ 1 จุด (เห็นชื่อสถานที่/ป้ายถนนจริงบนแผนที่ เหมือนตอนเปิด Google Maps เอง) — ใช้ Google ถ้ามีคีย์ ไม่งั้น fallback เป็น OSM
+async function buildPointCloseupImage(p, idx, total, cumInfo, apiKey, W, H){
+  if(apiKey){
+    const params = new URLSearchParams({
+      center:`${p.lat},${p.lng}`, zoom:'17', size:`${W}x${H}`, scale:'2',
+      maptype:'roadmap', format:'png', key: apiKey
+    });
+    const colorHex = '0x' + closeupPinColor(idx,total).slice(1);
+    params.append('markers', `color:${colorHex}|label:${idx+1}|${p.lat},${p.lng}`);
+    const url = `https://maps.googleapis.com/maps/api/staticmap?${params.toString()}`;
+    const res = await fetch(url);
+    const ct = res.headers.get('content-type') || '';
+    if(!res.ok || !ct.startsWith('image')){
+      let detail=''; try{ detail = await res.text(); }catch(e){}
+      throw new Error(`Google Static Maps ปฏิเสธคำขอ (HTTP ${res.status}): ${(detail||ct).slice(0,300)}`);
+    }
+    const blob = await res.blob();
+    const img = await new Promise((resolve,reject)=>{
+      const im=new Image();
+      im.onload=()=>resolve(im);
+      im.onerror=()=>reject(new Error('โหลดรูปที่ได้จาก Google ไม่สำเร็จ'));
+      im.src = URL.createObjectURL(blob);
+    });
+    const canvas=document.createElement('canvas'); canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0,W,H);
+    if(cumInfo) drawSmallInfoBox(ctx, cumInfo);
+    return canvas.toDataURL('image/png');
+  }
+  return await buildOsmCloseupImage(p, idx, total, cumInfo, W, H);
+}
+
+// สำรอง: ภาพซูมเฉพาะจุดจากกระเบื้อง OpenStreetMap (ใช้เมื่อไม่มี Google API key)
+async function buildOsmCloseupImage(p, idx, total, cumInfo, W, H){
+  const TILE=256, zoom=17;
+  const cx = lonToTileX(p.lng, zoom)*TILE;
+  const cy = latToTileY(p.lat, zoom)*TILE;
+  const left = cx - W/2, top = cy - H/2;
+  const maxTileIdx = Math.pow(2,zoom)-1;
+  const tx1=Math.floor(left/TILE), tx2=Math.floor((left+W)/TILE);
+  const ty1=Math.floor(top/TILE), ty2=Math.floor((top+H)/TILE);
+  const canvas=document.createElement('canvas'); canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#dfe3e8'; ctx.fillRect(0,0,W,H);
+  const loads=[];
+  for(let tx=tx1; tx<=tx2; tx++){
+    for(let ty=ty1; ty<=ty2; ty++){
+      if(tx<0||ty<0||tx>maxTileIdx||ty>maxTileIdx) continue;
+      const dx=tx*TILE-left, dy=ty*TILE-top;
+      loads.push(new Promise(res=>{
+        const img=new Image(); img.crossOrigin='anonymous';
+        img.onload=()=>{ try{ ctx.drawImage(img,dx,dy); }catch(e){} res(); };
+        img.onerror=()=>res();
+        img.src=`https://tile.openstreetmap.org/${zoom}/${tx}/${ty}.png`;
+      }));
+    }
+  }
+  await Promise.all(loads);
+  const x = cx-left, y = cy-top;
+  ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2);
+  ctx.fillStyle = closeupPinColor(idx,total);
+  ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#0f1116'; ctx.stroke();
+  ctx.fillStyle='#0f1116'; ctx.font='bold 11px sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(String(idx+1), x, y);
+  if(cumInfo) drawSmallInfoBox(ctx, cumInfo);
+  return canvas.toDataURL('image/png');
+}
+
+// คำนวณระยะทาง/เวลาสะสมจากจุดเริ่ม ไปถึงแต่ละจุดที่บันทึกไว้ (ใช้ legs จาก Google Directions หรือ OSRM)
+function cumulativeAtPoints(route, ptsLen){
+  const cum = [{distanceM:0, durationS:0}];
+  if(route && Array.isArray(route.legs) && route.legs.length === ptsLen-1){
+    let d=0, t=0;
+    route.legs.forEach(l=>{ d+=l.distanceM; t+=l.durationS; cum.push({distanceM:d, durationS:t}); });
+  } else {
+    for(let i=1;i<ptsLen;i++) cum.push(null);
+  }
+  return cum;
 }
 
 // ประกอบภาพแผนที่เส้นทางพร้อมระยะทาง/เวลา — ใช้ Google Maps ทั้งภาพแผนที่และคำนวณเส้นทาง (Directions API) ถ้ามี API key ตั้งไว้ ไม่งั้น fallback เป็น OpenStreetMap + OSRM (ฟรี ไม่ต้องใช้คีย์)
@@ -1251,15 +1365,26 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
           if(mapResult && mapResult.dataUrl){
             children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapResult.dataUrl), transformation:{width:480,height:315} }) ], spacing:{before:150} }));
           }
-          // รายชื่อจุดที่บันทึกไว้ + ระยะทางรวมของวันนั้น
-          const legendLines = pts.map((p,i)=> `${i+1}. ${p.label || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`}`);
-          if(mapResult && mapResult.route){
-            legendLines.push(`ระยะทางรวม: ${fmtKmTH(mapResult.route.distanceM)} (${fmtDurationTH(mapResult.route.durationS)})`);
+
+          // ภาพซูมแต่ละจุดที่บันทึกไว้ (โชว์ชื่อสถานที่จริงบนแผนที่ + เวลา/ระยะทางสะสมจากจุดเริ่ม) เรียงในบรรทัดเดียวกัน
+          const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
+          const cum = cumulativeAtPoints(mapResult && mapResult.route, pts.length);
+          const perW = Math.min(170, Math.floor(620/pts.length));
+          const perH = Math.round(perW*0.72);
+          const closeupRunChildren = [];
+          for(let pi=0; pi<pts.length; pi++){
+            try{
+              const closeupUrl = await buildPointCloseupImage(pts[pi], pi, pts.length, cum[pi], apiKey, perW, perH);
+              if(closeupRunChildren.length) closeupRunChildren.push(new TextRun({ text:' ' }));
+              closeupRunChildren.push(new ImageRun({ data:b64ToUint8(closeupUrl), transformation:{width:perW,height:perH} }));
+            }catch(e){
+              console.error('build point closeup failed', e);
+              if(apiKey && !gmapsError) gmapsError = (e && e.message) ? e.message : String(e);
+            }
           }
-          children.push(new Paragraph({
-            children:[ new TextRun({ text: legendLines.join('   |   '), size:18, color:'555555' }) ],
-            spacing:{before:80}
-          }));
+          if(closeupRunChildren.length){
+            children.push(new Paragraph({ children:closeupRunChildren, spacing:{before:100} }));
+          }
         }catch(e){ console.error('build map image failed', e); }
       }
     }
