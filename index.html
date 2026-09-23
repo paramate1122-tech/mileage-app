@@ -1,183 +1,240 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="สมุดไมล์">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Mileage">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#12141a">
-<title>สมุดไมล์รถ</title>
+<meta name="theme-color" content="#f2f2f7">
+<title>Mileage Log</title>
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2312141a'/%3E%3Ctext x='50' y='62' font-size='48' text-anchor='middle' fill='%23ffb020' font-family='monospace'%3E0%3C/text%3E%3C/svg%3E">
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
+<script>
+  try{ const t = localStorage.getItem('theme'); if(t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; }catch(e){}
+</script>
 <style>
   :root{
-    --bg:#0f1116;
-    --panel:#171a21;
-    --panel-2:#1d212a;
-    --line:#2a2f3a;
-    --text:#eef0f4;
-    --muted:#8b93a3;
-    --amber:#ffb238;
-    --amber-dim:#7a5a1e;
-    --teal:#59d3a8;
-    --red:#ff6b6b;
-    --mono: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    --bg:#f2f2f7;
+    --panel:#ffffff;
+    --panel-2:#f2f2f7;
+    --line:rgba(60,60,67,0.14);
+    --text:#000000;
+    --muted:#8e8e93;
+    --label2:#3c3c43;
+    --accent:#007aff;
+    --accent-press:#0062cc;
+    --green:#34c759;
+    --red:#ff3b30;
+    --fill:rgba(118,118,128,0.12);
+    --shadow:0 1px 2px rgba(0,0,0,0.04);
+    --amber:var(--accent); /* legacy names used by some inline styles */
+    --teal:var(--green);
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#000000; --panel:#1c1c1e; --panel-2:#2c2c2e; --line:rgba(84,84,88,0.6);
+      --text:#ffffff; --muted:#8e8e93; --label2:#ebebf5; --accent:#0a84ff; --accent-press:#409cff;
+      --green:#30d158; --red:#ff453a; --fill:rgba(118,118,128,0.24); --shadow:none;
+    }
+  }
+  :root[data-theme="dark"]{
+      --bg:#000000; --panel:#1c1c1e; --panel-2:#2c2c2e; --line:rgba(84,84,88,0.6);
+      --text:#ffffff; --muted:#8e8e93; --label2:#ebebf5; --accent:#0a84ff; --accent-press:#409cff;
+      --green:#30d158; --red:#ff453a; --fill:rgba(118,118,128,0.24); --shadow:none;
+    }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--sans); }
+  html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; letter-spacing:-0.01em; }
   body{
     padding-bottom:calc(40px + env(safe-area-inset-bottom));
     padding-top:env(safe-area-inset-top);
   }
-  .wrap{ max-width:480px; margin:0 auto; padding:18px 16px 0; }
+  .wrap{ max-width:520px; margin:0 auto; padding:12px 16px 0; }
 
-  header.top{ padding:6px 4px 18px; }
-  header.top .odo{ font-family:var(--mono); font-size:13px; letter-spacing:.12em; color:var(--muted); }
-  header.top h1{ margin:2px 0 0; font-size:26px; font-weight:600; letter-spacing:-0.02em; }
-  header.top .dash-line{ margin-top:14px; height:2px; background:linear-gradient(90deg,var(--amber),transparent 70%); border-radius:2px; }
+  header.top{ padding:18px 4px 14px; }
+  header.top .odo{ font-size:13px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.02em; }
+  header.top h1{ margin:2px 0 0; font-size:34px; font-weight:700; letter-spacing:-0.025em; }
+  header.top .dash-line{ display:none; }
+  header.top{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; }
+  html{ scroll-behavior:smooth; }
+  body, .card, .tab-btn, .place-search input, .btn-ghost, .photo-btn{ transition:background-color .3s ease, color .3s ease; }
 
-  .tabbar{ display:flex; gap:6px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:4px; margin-bottom:6px; }
+  /* iOS-style switch */
+  .theme-toggle{ display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; user-select:none; -webkit-user-select:none; }
+  .theme-toggle .ico{ width:18px; height:18px; color:var(--muted); display:flex; }
+  .theme-toggle input{ position:absolute; opacity:0; pointer-events:none; }
+  .switch{ position:relative; width:51px; height:31px; border-radius:31px; background:var(--fill); transition:background .25s ease; flex-shrink:0; }
+  .switch::after{ content:''; position:absolute; top:2px; left:2px; width:27px; height:27px; border-radius:50%;
+    background:#fff; box-shadow:0 3px 8px rgba(0,0,0,.15), 0 1px 1px rgba(0,0,0,.16);
+    transition:transform .28s cubic-bezier(.3,.7,.4,1); }
+  .theme-toggle input:checked + .switch{ background:var(--green); }
+  .theme-toggle input:checked + .switch::after{ transform:translateX(20px); }
+
+  /* segmented control */
+  .tabbar{ display:flex; gap:2px; background:var(--fill); border-radius:9px; padding:2px; margin-bottom:4px; }
   .tab-btn{
-    flex:1; padding:10px; border:none; border-radius:9px; background:transparent; color:var(--muted);
-    font-family:var(--sans); font-size:13.5px; font-weight:600; cursor:pointer;
+    flex:1; padding:7px 10px; border:none; border-radius:7px; background:transparent; color:var(--text);
+    font-family:var(--sans); font-size:13px; font-weight:500; cursor:pointer; transition:background .2s, box-shadow .2s;
   }
-  .tab-btn.active{ background:var(--amber); color:#1a1204; }
+  .tab-btn.active{ background:var(--panel); box-shadow:0 3px 8px rgba(0,0,0,0.12), 0 3px 1px rgba(0,0,0,0.04); font-weight:600; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tab-btn.active{ background:#636366; } }
+  :root[data-theme="dark"] .tab-btn.active{ background:#636366; }
 
-  .datebar{ display:flex; align-items:center; justify-content:space-between; margin:18px 0 14px; }
+  .datebar{ display:flex; align-items:center; justify-content:space-between; margin:22px 4px 10px; }
   .datebar select{
-    background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:10px;
-    padding:9px 12px; font-family:var(--mono); font-size:14px;
+    -webkit-appearance:none; appearance:none;
+    background:var(--fill); color:var(--accent); border:none; border-radius:8px;
+    padding:6px 12px; font-family:var(--sans); font-size:15px; font-weight:500;
   }
-  .datebar .today-badge{ font-size:12px; color:var(--teal); font-family:var(--mono); }
+  .datebar .today-badge{ font-size:13px; color:var(--muted); font-weight:500; }
 
-  .card{ background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; margin-bottom:14px; }
-  .card h2{ margin:0 0 12px; font-size:13px; font-weight:600; letter-spacing:.04em; color:var(--muted); text-transform:none; }
+  .card{ background:var(--panel); border-radius:12px; padding:16px; margin-bottom:22px; box-shadow:var(--shadow); }
+  .card h2{
+    margin:0 0 12px; font-size:13px; font-weight:400; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.01em;
+  }
 
-  .odo-row{ display:flex; gap:10px; align-items:stretch; }
-  .odo-input-col{ flex:1; display:flex; flex-direction:column; gap:8px; }
-  .odo-input-col label{ font-size:12px; color:var(--muted); }
+  .odo-row{ display:flex; gap:14px; align-items:center; }
+  .odo-input-col{ flex:1; display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .odo-input-col label{ font-size:13px; color:var(--muted); }
   .odo-input-col input[type=number]{
-    width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
-    color:var(--amber); font-family:var(--mono); font-size:28px; padding:8px 10px;
+    width:100%; background:transparent; border:none; outline:none;
+    color:var(--text); font-family:var(--sans); font-size:34px; font-weight:600; padding:0;
+    font-variant-numeric:tabular-nums; letter-spacing:-0.02em;
   }
-  .odo-input-col input[type=number]::placeholder{ color:#4a4f5c; }
+  .odo-input-col input[type=number]::placeholder{ color:var(--muted); opacity:.5; }
 
-  .photo-slot{ width:92px; flex-shrink:0; }
+  .photo-slot{ width:76px; flex-shrink:0; }
   .photo-btn{
-    width:92px; height:92px; border-radius:12px; border:1.5px dashed var(--line);
-    background:var(--panel-2); display:flex; align-items:center; justify-content:center;
+    width:76px; height:76px; border-radius:12px; border:none;
+    background:var(--fill); display:flex; align-items:center; justify-content:center;
     overflow:hidden; position:relative; cursor:pointer;
   }
   .photo-btn img{ width:100%; height:100%; object-fit:cover; }
-  .photo-btn .plus{ color:var(--muted); font-size:26px; font-weight:300; }
+  .photo-btn .plus{ color:var(--accent); font-size:28px; font-weight:300; line-height:1; }
   .photo-btn input{ position:absolute; inset:0; opacity:0; cursor:pointer; }
-  .photo-caption{ text-align:center; font-size:11px; color:var(--muted); margin-top:6px; }
+  .photo-caption{ text-align:center; font-size:11px; color:var(--muted); margin-top:5px; }
 
   .pair{ display:flex; gap:16px; }
-  .pair > div{ flex:1; }
+  .pair > div{ flex:1; min-width:0; }
 
-  .divider{ height:1px; background:var(--line); margin:16px 0; }
+  .divider{ height:0.5px; background:var(--line); margin:14px 0; }
 
-  .stat-row{ display:flex; justify-content:space-between; align-items:baseline; padding:2px 0; }
-  .stat-row .label{ font-size:13px; color:var(--muted); }
-  .stat-row .value{ font-family:var(--mono); font-size:17px; }
-  .stat-row .value.amber{ color:var(--amber); }
-  .stat-row .value.teal{ color:var(--teal); }
+  .stat-row{ display:flex; justify-content:space-between; align-items:baseline; padding:4px 0; }
+  .stat-row .label{ font-size:15px; color:var(--text); }
+  .stat-row .value{ font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .stat-row .value.amber{ color:var(--text); }
+  .stat-row .value.teal{ color:var(--green); }
 
   .btn{
-    display:flex; align-items:center; justify-content:center; gap:8px;
+    display:flex; align-items:center; justify-content:center; gap:6px;
     width:100%; padding:14px; border-radius:12px; border:none;
-    font-size:15px; font-weight:600; font-family:var(--sans); cursor:pointer;
+    font-size:17px; font-weight:600; font-family:var(--sans); cursor:pointer;
+    transition:opacity .15s, transform .1s;
   }
-  .btn-primary{ background:var(--amber); color:#1a1204; }
-  .btn-ghost{ background:var(--panel-2); color:var(--text); border:1px solid var(--line); }
-  .btn-teal{ background:var(--teal); color:#062018; }
-  .btn-sm{ padding:9px 12px; font-size:13px; width:auto; }
-  .btn:disabled{ opacity:.4; }
-  .btn-row{ display:flex; gap:10px; }
+  .btn:active{ transform:scale(0.98); opacity:.85; }
+  .btn-primary{ background:var(--accent); color:#fff; }
+  .btn-ghost{ background:var(--fill); color:var(--accent); border:none; }
+  .btn-teal{ background:var(--accent); color:#fff; }
+  .btn-sm{ padding:9px 12px; font-size:15px; font-weight:500; width:auto; border-radius:10px; }
+  .btn:disabled{ opacity:.35; }
+  .btn-row{ display:flex; gap:8px; }
 
-  .points-count{ font-family:var(--mono); color:var(--teal); font-size:13px; margin-top:8px; }
-  .gps-live{ font-size:11.5px; color:var(--muted); margin-top:4px; min-height:14px; }
-  .ocr-status{ font-size:10.5px; color:var(--teal); min-height:13px; line-height:1.4; }
+  .points-count{ color:var(--muted); font-size:13px; margin-top:8px; }
+  .gps-live{ font-size:13px; color:var(--muted); margin-top:6px; min-height:16px; }
+  .ocr-status{ font-size:12px; color:var(--muted); min-height:14px; line-height:1.4; }
 
-  .point-slots{ margin-top:2px; }
-  .slot-row{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); }
+  .point-slots{ margin:-4px 0 0; }
+  .slot-row{ display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:0.5px solid var(--line); }
   .slot-row:last-child{ border-bottom:none; }
-  .slot-num{ width:24px; height:24px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line);
-    display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:12px; color:var(--amber); flex-shrink:0; }
+  .slot-num{ width:24px; height:24px; border-radius:50%; background:var(--accent); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; flex-shrink:0; }
   .slot-info{ flex:1; min-width:0; }
-  .slot-name{ font-size:12.5px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+  .slot-name{ font-size:16px; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); cursor:pointer; }
   .slot-name.empty{ color:var(--muted); }
-  .slot-time{ font-family:var(--mono); font-size:10.5px; color:var(--muted); }
-  .slot-actions{ display:flex; gap:6px; flex-shrink:0; }
-  .slot-save{ padding:7px 10px; font-size:12px; width:auto; }
-  .slot-clear{ background:none; border:none; color:var(--red); font-size:15px; cursor:pointer; padding:2px 4px; }
-  .slot-icon-btn{ padding:7px 9px; font-size:13px; width:auto; }
+  .slot-time{ font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .slot-actions{ display:flex; gap:6px; flex-shrink:0; align-items:center; }
+  .slot-save{ padding:7px 10px; font-size:13px; width:auto; }
+  .slot-clear{ background:none; border:none; color:var(--muted); cursor:pointer; padding:4px; display:flex; }
+  .slot-icon-btn{ width:34px; height:34px; padding:0; border-radius:50%; }
+  .slot-icon-btn svg, .slot-clear svg{ width:17px; height:17px; }
 
   .place-search{ position:relative; }
   .place-search input{
-    width:100%; background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
-    color:var(--text); font-family:var(--sans); font-size:14px; padding:8px 10px;
+    width:100%; background:var(--fill); border:none; border-radius:10px; outline:none;
+    color:var(--text); font-family:var(--sans); font-size:16px; padding:8px 12px;
   }
-  .place-search input::placeholder{ color:#5a6070; }
+  .place-search input::placeholder{ color:var(--muted); }
   .place-dd{
-    position:absolute; top:calc(100% + 4px); left:0; right:-52px; z-index:30;
-    background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
-    box-shadow:0 10px 30px rgba(0,0,0,.5); max-height:280px; overflow-y:auto; display:none;
+    position:absolute; top:calc(100% + 6px); left:0; right:-40px; z-index:30;
+    background:var(--panel); border-radius:12px; border:0.5px solid var(--line);
+    box-shadow:0 12px 32px rgba(0,0,0,.18); max-height:300px; overflow-y:auto; display:none;
   }
-  .place-dd.open{ display:block; }
-  .place-dd .dd-item{ padding:9px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .place-dd.open{ display:block; animation:ddIn .18s ease-out; }
+  @keyframes ddIn{ from{ opacity:0; transform:translateY(-4px) scale(.98); } to{ opacity:1; transform:none; } }
+  .place-dd{ overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; }
+  .place-dd .dd-item{ transition:background-color .12s ease; -webkit-user-select:none; user-select:none; }
+  .place-dd .dd-item:active{ background:var(--fill); }
+  .place-dd .dd-item{ padding:10px 14px; border-bottom:0.5px solid var(--line); cursor:pointer; }
   .place-dd .dd-item:last-child{ border-bottom:none; }
-  .place-dd .dd-item:hover, .place-dd .dd-item.active{ background:#262b36; }
-  .place-dd .dd-main{ font-size:13.5px; color:var(--text); }
-  .place-dd .dd-sub{ font-size:11.5px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .place-dd .dd-msg{ padding:10px 12px; font-size:12.5px; color:var(--muted); }
+  @media (hover:hover){ .place-dd .dd-item:hover{ background:var(--fill); } }
+  .place-dd .dd-item.active{ background:var(--fill); }
+  .place-dd .dd-main{ font-size:15px; color:var(--text); }
+  .place-dd .dd-sub{ font-size:13px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .place-dd .dd-msg{ padding:12px 14px; font-size:14px; color:var(--muted); }
 
   #mapDlg{ max-width:96vw; width:96vw; }
-  #mapDlg img{ width:100%; border-radius:8px; display:block; background:#fff; }
+  #mapDlg img{ width:100%; border-radius:10px; display:block; background:#fff; }
 
   .history-item{
     display:flex; justify-content:space-between; align-items:center;
-    padding:12px 4px; border-bottom:1px solid var(--line); cursor:pointer;
+    padding:12px 0; border-bottom:0.5px solid var(--line); cursor:pointer;
   }
   .history-item:last-child{ border-bottom:none; }
-  .history-item .d{ font-size:14px; }
-  .history-item .d .dist{ font-family:var(--mono); color:var(--amber); font-size:13px; display:block; margin-top:2px; }
-  .history-item .actions{ display:flex; gap:8px; }
-  .icon-btn{ background:none; border:none; color:var(--muted); font-size:18px; padding:4px 6px; cursor:pointer; }
+  .history-item .d{ font-size:16px; }
+  .history-item .d .dist{ color:var(--muted); font-size:13px; display:block; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .history-item .actions{ display:flex; gap:4px; }
+  .icon-btn{ background:none; border:none; color:var(--accent); font-size:15px; padding:6px 8px; cursor:pointer; font-family:var(--sans); }
   .icon-btn.del{ color:var(--red); }
 
-  .footer-actions{ display:flex; flex-direction:column; gap:10px; margin-top:6px; }
-  .footer-actions .btn-row{ gap:10px; }
-  .hint{ font-size:11.5px; color:var(--muted); line-height:1.5; margin-top:10px; }
+  .footer-actions{ display:flex; flex-direction:column; gap:10px; margin-top:2px; }
+  .footer-actions select{
+    -webkit-appearance:none; appearance:none; width:100%;
+    background:var(--fill); color:var(--text); border:none; border-radius:10px;
+    padding:12px 14px; font-family:var(--sans); font-size:16px;
+  }
+  .hint{ font-size:13px; color:var(--muted); line-height:1.45; margin-top:12px; }
 
-  .empty{ font-size:13px; color:var(--muted); text-align:center; padding:20px 0; }
+  .empty{ font-size:15px; color:var(--muted); text-align:center; padding:20px 0; }
 
-  dialog{ border:none; border-radius:16px; background:var(--panel); color:var(--text); padding:0; max-width:340px; width:88vw; }
-  dialog::backdrop{ background:rgba(0,0,0,.6); }
-  .dlg-body{ padding:20px; }
-  .dlg-body h3{ margin:0 0 10px; font-size:16px; }
-  .dlg-body p{ font-size:13.5px; color:var(--muted); line-height:1.55; }
-  .dlg-body .btn{ margin-top:14px; }
+  dialog{ border:none; border-radius:14px; background:var(--panel); color:var(--text); padding:0; max-width:300px; width:80vw;
+    box-shadow:0 20px 60px rgba(0,0,0,.25); }
+  dialog::backdrop{ background:rgba(0,0,0,.35); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px); }
+  .dlg-body{ padding:20px 18px 16px; text-align:center; }
+  .dlg-body h3{ margin:0 0 6px; font-size:17px; font-weight:600; }
+  .dlg-body p{ font-size:13px; color:var(--text); line-height:1.4; margin:0; }
+  .dlg-body .btn{ margin-top:16px; }
 
   #cropDlg{ max-width:92vw; width:92vw; }
+  #cropDlg .dlg-body, #mapDlg .dlg-body{ text-align:left; }
   .crop-wrap{ position:relative; width:100%; border-radius:10px; overflow:hidden; background:#000; touch-action:none; }
   .crop-wrap img{ width:100%; display:block; pointer-events:none; }
   .crop-box{
-    position:absolute; border:2px solid var(--amber); border-radius:5px;
-    box-shadow:0 0 0 2000px rgba(0,0,0,0.4);
+    position:absolute; border:2px solid #ffd60a; border-radius:6px;
+    box-shadow:0 0 0 2000px rgba(0,0,0,0.45);
     touch-action:none; cursor:grab; user-select:none;
     min-width:24px; min-height:18px;
   }
   .crop-box:active{ cursor:grabbing; }
   .crop-handle{
-    position:absolute; right:-15px; bottom:-15px; width:30px; height:30px;
-    background:var(--amber); border:3px solid var(--panel); border-radius:50%;
+    position:absolute; right:-14px; bottom:-14px; width:28px; height:28px;
+    background:#fff; border:none; border-radius:50%; box-shadow:0 1px 4px rgba(0,0,0,.4);
     touch-action:none; cursor:nwse-resize;
   }
 
@@ -188,14 +245,20 @@
 <div class="wrap">
 
   <header class="top">
-    <div class="odo">TRIP LOGGER</div>
-    <h1>สมุดไมล์รถ</h1>
-    <div class="dash-line"></div>
+    <div>
+      <div class="odo" id="headerDate"></div>
+      <h1>Mileage Log</h1>
+    </div>
+    <label class="theme-toggle" title="Dark mode">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
+      <input type="checkbox" id="themeSwitch" aria-label="Dark mode">
+      <span class="switch"></span>
+    </label>
   </header>
 
   <div class="tabbar">
-    <button class="tab-btn active" id="tabBtnToday" data-tab="today">บันทึกวันนี้</button>
-    <button class="tab-btn" id="tabBtnHistory" data-tab="history">ประวัติ</button>
+    <button class="tab-btn active" id="tabBtnToday" data-tab="today">Today</button>
+    <button class="tab-btn" id="tabBtnHistory" data-tab="history">History</button>
   </div>
 
   <div id="tabToday">
@@ -206,22 +269,22 @@
 
   <!-- ODOMETER CARD -->
   <div class="card">
-    <h2>ไมล์รถ</h2>
+    <h2>Odometer</h2>
     <div class="pair">
       <div>
         <div class="odo-row">
           <div class="odo-input-col">
-            <label>เริ่มวัน (กม.)</label>
+            <label>Start (km)</label>
             <input type="number" inputmode="numeric" id="startKm" placeholder="0">
             <div class="ocr-status" id="startOcrStatus"></div>
           </div>
           <div class="photo-slot">
             <div class="photo-btn" id="startPhotoBtn">
-              <span class="plus" id="startPlus">＋</span>
+              <span class="plus" id="startPlus">+</span>
               <img id="startImg" style="display:none">
               <input type="file" accept="image/*" id="startFile">
             </div>
-            <div class="photo-caption">ถ่าย / เลือกรูป</div>
+            <div class="photo-caption">Photo</div>
           </div>
         </div>
       </div>
@@ -231,66 +294,66 @@
       <div>
         <div class="odo-row">
           <div class="odo-input-col">
-            <label>จบวัน (กม.)</label>
+            <label>End (km)</label>
             <input type="number" inputmode="numeric" id="endKm" placeholder="0">
             <div class="ocr-status" id="endOcrStatus"></div>
           </div>
           <div class="photo-slot">
             <div class="photo-btn" id="endPhotoBtn">
-              <span class="plus" id="endPlus">＋</span>
+              <span class="plus" id="endPlus">+</span>
               <img id="endImg" style="display:none">
               <input type="file" accept="image/*" id="endFile">
             </div>
-            <div class="photo-caption">ถ่าย / เลือกรูป</div>
+            <div class="photo-caption">Photo</div>
           </div>
         </div>
       </div>
     </div>
     <div class="divider"></div>
-    <div class="stat-row"><span class="label">ระยะทางวันนี้</span><span class="value amber" id="distToday">—</span></div>
-    <div class="stat-row"><span class="label">ค่าเสื่อม (กม. × 1.2 × 5)</span><span class="value teal" id="costToday">—</span></div>
+    <div class="stat-row"><span class="label">Distance today</span><span class="value amber" id="distToday">—</span></div>
+    <div class="stat-row"><span class="label">Allowance (km × 1.2 × 5)</span><span class="value teal" id="costToday">—</span></div>
   </div>
 
   <!-- ROUTE CARD -->
   <div class="card">
-    <h2>เส้นทางการเดินทาง (สูงสุด 5 จุด)</h2>
+    <h2>Route (up to 5 stops)</h2>
     <div class="point-slots" id="pointSlots"></div>
     <div class="gps-live" id="gpsLive"></div>
     <div class="btn-row" style="margin-top:10px;">
-      <button class="btn btn-ghost btn-sm" id="viewRouteBtn" style="flex:1;">เปิดใน Google Maps</button>
-      <button class="btn btn-ghost btn-sm" id="previewMapBtn" style="flex:1;">🗺 ดูภาพแผนที่</button>
-      <button class="btn btn-ghost btn-sm" id="clearPointsBtn">ล้าง</button>
+      <button class="btn btn-ghost btn-sm" id="viewRouteBtn" style="flex:1;">Open in Maps</button>
+      <button class="btn btn-ghost btn-sm" id="previewMapBtn" style="flex:1;">Preview map</button>
+      <button class="btn btn-ghost btn-sm" id="clearPointsBtn">Clear</button>
     </div>
-    <div class="hint">แต่ละจุดเลือกได้ 2 แบบ: กด 📍 เพื่อบันทึกตำแหน่งปัจจุบันทันที (ชื่อสถานที่จะหาให้อัตโนมัติ) หรือพิมพ์ชื่อสถานที่ในช่องค้นหาแล้วเลือกจากรายการของ Google Maps ที่เด้งลงมา ใช้กี่จุดก็ได้ (เช่น จุด 1 = บ้าน, จุด 2 = ที่ทำงาน, จุด 3 = กลับบ้าน). จุดที่บันทึกแล้วกด 🔍 เพื่อค้นหาใหม่ หรือแตะที่ชื่อเพื่อแก้ชื่อ. "ดูภาพแผนที่" = ภาพเดียวกับที่จะใส่ในไฟล์ Word</div>
+    <div class="hint">Tap the location arrow to save where you are now, or search for a place and pick it from the list. Tap a saved name to rename it.</div>
   </div>
 
-  <button class="btn btn-primary" id="saveTodayBtn" style="margin-bottom:24px;">💾 บันทึกข้อมูลวันนี้</button>
+  <button class="btn btn-primary" id="saveTodayBtn" style="margin-bottom:24px;">Save</button>
   </div>
 
-  <div id="tabHistory" style="display:none;">
+  <div id="tabHistory" style="display:none; padding-top:18px;">
   <!-- HISTORY -->
   <div class="card">
-    <h2>ประวัติทั้งหมด</h2>
+    <h2>All entries</h2>
     <div id="historyList"></div>
-    <div class="hint">แตะที่วันไหนก็ได้เพื่อเปิดดู/แก้ไขข้อมูลของวันนั้นแบบเต็ม (เหมือนหน้าบันทึกวันนี้)</div>
+    <div class="hint">Tap a day to view or edit it.</div>
   </div>
 
   <!-- EXPORT -->
   <div class="card">
-    <h2>ส่งออกข้อมูล</h2>
+    <h2>Export</h2>
     <div class="footer-actions">
       <select id="monthSelect"></select>
-      <button class="btn btn-teal" id="exportExcelBtn">📊 ส่งออกเป็น Excel (.xlsx)</button>
-      <button class="btn btn-ghost" id="exportWordBtn">📄 ส่งออกเป็น Word (.docx) พร้อมรูป+แผนที่</button>
+      <button class="btn btn-teal" id="exportExcelBtn">Export Excel (.xlsx)</button>
+      <button class="btn btn-ghost" id="exportWordBtn">Export Word (.docx)</button>
       <div class="btn-row">
-        <button class="btn btn-ghost btn-sm" id="backupBtn" style="flex:1;">สำรองข้อมูล (JSON)</button>
+        <button class="btn btn-ghost btn-sm" id="backupBtn" style="flex:1;">Back up (JSON)</button>
         <button class="btn btn-ghost btn-sm" id="restoreBtnLabel" style="flex:1;">
-          กู้คืนข้อมูล
+          Restore
           <input type="file" accept="application/json" id="restoreFile" style="display:none">
         </button>
       </div>
     </div>
-    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ไฟล์ Word จะมีเฉพาะ วันที่ / รูปไมล์เริ่ม-จบวัน / ภาพเส้นทางแบบหน้าจอ Google Maps (รายการจุด + ระยะทาง/เวลา + แผนที่) ของทุกวันในเดือนนั้น (วันละ 1 หน้า) สร้างให้อัตโนมัติ ไม่ต้องแคปหน้าจอเอง. ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
+    <div class="hint">Excel: date, start/end km, distance and allowance. Word: one page per day with odometer photos and a Google Maps route image. Data is stored only on this device — back up regularly.</div>
   </div>
 
   </div>
@@ -301,36 +364,36 @@
 
 <dialog id="msgDlg">
   <div class="dlg-body">
-    <h3 id="msgTitle">แจ้งเตือน</h3>
+    <h3 id="msgTitle">Notice</h3>
     <p id="msgBody"></p>
-    <button class="btn btn-primary" id="msgOk">ตกลง</button>
+    <button class="btn btn-primary" id="msgOk">OK</button>
   </div>
 </dialog>
 
 <dialog id="mapDlg">
   <div class="dlg-body" style="padding:14px;">
-    <h3 style="margin-bottom:10px;">ภาพแผนที่เส้นทาง (แบบในรายงาน)</h3>
-    <img id="mapDlgImg" alt="แผนที่เส้นทาง">
+    <h3 style="margin-bottom:10px;">Route map (as in report)</h3>
+    <img id="mapDlgImg" alt="Route map">
     <div class="btn-row" style="margin-top:12px;">
-      <a class="btn btn-teal" id="mapDlgSave" style="flex:1; text-decoration:none;" download="route.png">บันทึกรูป</a>
-      <button class="btn btn-ghost" id="mapDlgClose" style="flex:1;">ปิด</button>
+      <a class="btn btn-teal" id="mapDlgSave" style="flex:1; text-decoration:none;" download="route.png">Save image</a>
+      <button class="btn btn-ghost" id="mapDlgClose" style="flex:1;">Close</button>
     </div>
   </div>
 </dialog>
 
 <dialog id="cropDlg">
   <div class="dlg-body" style="padding:16px;">
-    <h3 style="margin-bottom:6px;">เลือกตำแหน่งเลขไมล์รวม</h3>
-    <p style="margin:0 0 10px;">ลากกรอบสีเหลืองไปคลุมเฉพาะเลขไมล์รวม ลากจุดกลมมุมล่างขวาเพื่อปรับขนาดกรอบให้พอดี</p>
+    <h3 style="margin-bottom:6px;">Select the odometer reading</h3>
+    <p style="margin:0 0 10px;">Drag the box over the total odometer number. Drag the corner handle to resize.</p>
     <div class="crop-wrap" id="cropImgWrap">
-      <img id="cropImg" alt="รูปไมล์">
+      <img id="cropImg" alt="Odometer photo">
       <div class="crop-box" id="cropMarker">
         <div class="crop-handle" id="cropHandle"></div>
       </div>
     </div>
     <div class="btn-row" style="margin-top:12px;">
-      <button class="btn btn-primary" id="cropConfirmBtn" style="flex:1;">อ่านตัวเลขตรงนี้</button>
-      <button class="btn btn-ghost" id="cropSkipBtn" style="flex:1;">ข้าม / กรอกเอง</button>
+      <button class="btn btn-primary" id="cropConfirmBtn" style="flex:1;">Read number</button>
+      <button class="btn btn-ghost" id="cropSkipBtn" style="flex:1;">Skip / enter manually</button>
     </div>
   </div>
 </dialog>
@@ -355,8 +418,8 @@ function dayRec(dateStr){
 }
 function fmtDateTH(dateStr){
   const [y,m,d] = dateStr.split('-');
-  const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  return `${parseInt(d)} ${months[parseInt(m)-1]} ${parseInt(y)+543}`;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${parseInt(d)} ${months[parseInt(m)-1]} ${parseInt(y)}`;
 }
 function fmtDateShort(dateStr){
   const [y,m,d] = dateStr.split('-');
@@ -377,7 +440,9 @@ function refreshDateSelect(){
   dates.add(currentDate);
   const sorted = Array.from(dates).sort().reverse();
   sel.innerHTML = sorted.map(d => `<option value="${d}" ${d===currentDate?'selected':''}>${fmtDateTH(d)}</option>`).join('');
-  document.getElementById('todayBadge').textContent = currentDate === todayStr() ? 'วันนี้' : '';
+  document.getElementById('todayBadge').textContent = currentDate === todayStr() ? 'Today' : '';
+  const hd = document.getElementById('headerDate');
+  if(hd) hd.textContent = new Date().toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'});
 }
 document.getElementById('dateSelect').addEventListener('change', e=>{
   currentDate = e.target.value;
@@ -412,8 +477,8 @@ function updateStats(){
   if(!isNaN(s) && !isNaN(e) && e >= s){
     const dist = e - s;
     const cost = dist * 1.2 * 5;
-    document.getElementById('distToday').textContent = dist.toLocaleString(undefined,{maximumFractionDigits:1}) + ' กม.';
-    document.getElementById('costToday').textContent = cost.toLocaleString(undefined,{maximumFractionDigits:2}) + ' บาท';
+    document.getElementById('distToday').textContent = dist.toLocaleString(undefined,{maximumFractionDigits:1}) + ' km';
+    document.getElementById('costToday').textContent = cost.toLocaleString(undefined,{maximumFractionDigits:2}) + ' THB';
   } else {
     document.getElementById('distToday').textContent = '—';
     document.getElementById('costToday').textContent = '—';
@@ -436,21 +501,21 @@ function renderPointSlots(){
     const filled = p != null;
     const showSearch = !filled || slotSearchOpen === i;
     const name = filled ? (p.label || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`) : '';
-    const time = filled ? new Date(p.t).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}) : '';
+    const time = filled ? new Date(p.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
     const info = showSearch
       ? `<div class="place-search">
-           <input type="search" data-search="${i}" placeholder="${filled ? 'ค้นหาสถานที่ใหม่…' : 'ค้นหาสถานที่ หรือกด 📍'}" autocomplete="off" enterkeyhint="search">
+           <input type="search" data-search="${i}" placeholder="${filled ? 'Search new place…' : 'Search a place'}" autocomplete="off" enterkeyhint="search">
            <div class="place-dd" data-dd="${i}"></div>
          </div>`
-      : `<div class="slot-name" data-edit="${i}" title="แตะเพื่อแก้ไขชื่อ">${escHtml(name)}</div>
+      : `<div class="slot-name" data-edit="${i}" title="Tap to rename">${escHtml(name)}</div>
          ${time ? `<div class="slot-time">${time}</div>` : ''}`;
     return `<div class="slot-row">
       <div class="slot-num">${i+1}</div>
       <div class="slot-info">${info}</div>
       <div class="slot-actions">
-        <button class="btn btn-ghost slot-icon-btn" data-gps="${i}" title="บันทึกตำแหน่งปัจจุบัน">📍</button>
-        ${filled && !showSearch ? `<button class="btn btn-ghost slot-icon-btn" data-open-search="${i}" title="ค้นหาสถานที่">🔍</button>` : ''}
-        ${filled?`<button class="slot-clear" data-clear="${i}">✕</button>`:''}
+        <button class="btn btn-ghost slot-icon-btn" data-gps="${i}" title="Use current location"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.4 2.6a1 1 0 0 0-1.1-.2L3 9.9a1 1 0 0 0 .1 1.9l7.1 2 2 7.1a1 1 0 0 0 1.9.1l7.5-17.3a1 1 0 0 0-.2-1.1z"/></svg></button>
+        ${filled && !showSearch ? `<button class="btn btn-ghost slot-icon-btn" data-open-search="${i}" title="Search place"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.8-4.8"/></svg></button>` : ''}
+        ${filled?`<button class="slot-clear" data-clear="${i}" title="Remove"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>`:''}
       </div>
     </div>`;
   }).join('');
@@ -470,7 +535,7 @@ function renderPointSlots(){
     const i = parseInt(el.dataset.edit);
     const p = pointSlots()[i];
     if(!p) return;
-    const name = prompt('แก้ไขชื่อสถานที่จุดที่ '+(i+1), p.label || '');
+    const name = prompt('Rename stop '+(i+1), p.label || '');
     if(name !== null){ p.label = name.trim() || p.label; saveDB(); renderPointSlots(); }
   });
   wrap.querySelectorAll('[data-search]').forEach(inp=>attachPlaceSearch(inp, parseInt(inp.dataset.search)));
@@ -506,7 +571,7 @@ let _acSessionToken = null;
 // คืนรายการ {main, sub, resolve()} — ลองใช้ Places API (New) ก่อน ถ้าโปรเจกต์ไม่ได้เปิดไว้ค่อยใช้ Places API (Legacy)
 async function fetchPlaceSuggestions(query){
   const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
-  if(!apiKey) throw new Error('ระบบแผนที่ยังไม่พร้อมใช้งาน');
+  if(!apiKey) throw new Error('Maps is not available');
   await loadGoogleMapsJS(apiKey);
   const P = google.maps.places;
   if(!_acSessionToken) _acSessionToken = new P.AutocompleteSessionToken();
@@ -516,9 +581,9 @@ async function fetchPlaceSuggestions(query){
   let newApiErr = null;
   if(P.AutocompleteSuggestion && !fetchPlaceSuggestions._newApiFailed){
     try{
-      const req = { input:query, sessionToken:token, language:'th', region:'th' };
+      const req = { input:query, sessionToken:token, language:'en', region:'th' };
       if(bias) req.locationBias = { center:bias, radius:50000 };
-      const { suggestions } = await withTimeout(P.AutocompleteSuggestion.fetchAutocompleteSuggestions(req), 7000, 'Google ตอบช้าเกินไป');
+      const { suggestions } = await withTimeout(P.AutocompleteSuggestion.fetchAutocompleteSuggestions(req), 7000, 'Google took too long');
       const list = suggestions.filter(s=>s.placePrediction).map(s=>{
         const pp = s.placePrediction;
         const main = (pp.mainText && pp.mainText.text) || pp.text.text;
@@ -527,7 +592,7 @@ async function fetchPlaceSuggestions(query){
           sub: (pp.secondaryText && pp.secondaryText.text) || '',
           resolve: async ()=>{
             const place = pp.toPlace();
-            await withTimeout(place.fetchFields({ fields:['displayName','location','formattedAddress'] }), 10000, 'Google ตอบช้าเกินไป');
+            await withTimeout(place.fetchFields({ fields:['displayName','location','formattedAddress'] }), 10000, 'Google took too long');
             _acSessionToken = null;
             return { name: place.displayName || main, lat: place.location.lat(), lng: place.location.lng() };
           }
@@ -537,14 +602,14 @@ async function fetchPlaceSuggestions(query){
       // ไม่มีผลลัพธ์ -> ลองระบบค้นหาแบบเดิมอีกทาง
     }catch(e){
       newApiErr = e;
-      console.warn('Places API (New) ใช้ไม่ได้ เปลี่ยนไปใช้ Places API (Legacy)', e);
+      console.warn('Places API (New) failed, falling back to Legacy', e);
       // ถ้าถูกปฏิเสธสิทธิ์ (ไม่ได้เปิด API นี้) ไม่ต้องลองซ้ำทุกครั้ง; ถ้าแค่ช้า/เน็ตหลุด ครั้งหน้าลองใหม่ได้
       if(/PERMISSION|DENIED|not been used|disabled|403/i.test(String(e && (e.message||e)))) fetchPlaceSuggestions._newApiFailed = true;
     }
   }
 
   const svc = new P.AutocompleteService();
-  const req = { input:query, sessionToken:token, language:'th', componentRestrictions:{country:'th'} };
+  const req = { input:query, sessionToken:token, language:'en', componentRestrictions:{country:'th'} };
   if(bias) req.locationBias = { center:bias, radius:50000 };
   let preds;
   try{
@@ -552,12 +617,12 @@ async function fetchPlaceSuggestions(query){
       svc.getPlacePredictions(req, (res, status)=>{
         if(status === P.PlacesServiceStatus.OK) resolve(res || []);
         else if(status === P.PlacesServiceStatus.ZERO_RESULTS) resolve([]);
-        else reject(new Error('Google Places ปฏิเสธคำขอ: '+status));
+        else reject(new Error('Google Places rejected the request: '+status));
       });
-    }), 8000, 'Google ตอบช้าเกินไป ลองใหม่อีกครั้ง');
+    }), 8000, 'Google took too long. Please try again.');
   }catch(e){
     if(_gmapsAuthError) throw new Error(_gmapsAuthError);
-    if(newApiErr) console.warn('ทั้งสองระบบค้นหาล้มเหลว', newApiErr);
+    if(newApiErr) console.warn('Both search backends failed', newApiErr);
     throw e;
   }
   if(!preds.length && _gmapsAuthError) throw new Error(_gmapsAuthError);
@@ -569,7 +634,7 @@ async function fetchPlaceSuggestions(query){
         _acSessionToken = null;
         if(status === P.PlacesServiceStatus.OK && place && place.geometry){
           resolve({ name: place.name || pr.description, lat: place.geometry.location.lat(), lng: place.geometry.location.lng() });
-        } else reject(new Error('ดึงพิกัดสถานที่ไม่สำเร็จ: '+status));
+        } else reject(new Error('Could not get place location: '+status));
       });
     })
   }));
@@ -581,39 +646,52 @@ function attachPlaceSearch(input, slotIdx){
   const close = ()=>{ dd.classList.remove('open'); active = -1; };
   const showMsg = (msg)=>{ dd.innerHTML = `<div class="dd-msg">${escHtml(msg)}</div>`; dd.classList.add('open'); };
   const renderItems = ()=>{
-    if(!items.length){ showMsg('ไม่พบสถานที่ ลองพิมพ์ชื่ออื่น'); return; }
+    if(!items.length){ showMsg('No places found. Try another name.'); return; }
     dd.innerHTML = items.map((it,k)=>`<div class="dd-item${k===active?' active':''}" data-k="${k}">
         <div class="dd-main">${escHtml(it.main)}</div>
         ${it.sub ? `<div class="dd-sub">${escHtml(it.sub)}</div>` : ''}
       </div>`).join('');
     dd.classList.add('open');
-    // ใช้ pointerdown เพื่อให้เลือกได้ก่อนที่ช่องค้นหาจะเสีย focus
-    dd.querySelectorAll('[data-k]').forEach(el=>el.addEventListener('pointerdown', e=>{
-      e.preventDefault();
-      choose(items[parseInt(el.dataset.k)]);
-    }));
+    // เลือกเมื่อ "แตะ" (click) เท่านั้น — ถ้าลากเพื่อเลื่อนรายการ เบราว์เซอร์จะไม่ส่ง click จึงไม่เลือกผิด
+    // mousedown preventDefault กันช่องค้นหาเสีย focus (คีย์บอร์ดไม่หุบ) ระหว่างแตะ
+    dd.querySelectorAll('[data-k]').forEach(el=>{
+      el.addEventListener('mousedown', e=>e.preventDefault());
+      el.addEventListener('click', e=>{ e.preventDefault(); choose(items[parseInt(el.dataset.k)]); });
+    });
   };
   const choose = async (it)=>{
     if(!it) return;
-    showMsg('กำลังบันทึก '+it.main+'…');
+    showMsg('Saving '+it.main+'…');
     try{
       const r = await it.resolve();
       pointSlots()[slotIdx] = { lat:r.lat, lng:r.lng, t:Date.now(), label:r.name, src:'search' };
       slotSearchOpen = null;
       saveDB(); renderPointSlots();
-      document.getElementById('gpsLive').textContent = `บันทึกจุดที่ ${slotIdx+1}: ${r.name}`;
+      document.getElementById('gpsLive').textContent = `Saved stop ${slotIdx+1}: ${r.name}`;
     }catch(e){
-      showMsg('บันทึกไม่สำเร็จ — ' + (e && e.message ? e.message : e));
+      showMsg('Could not save — ' + (e && e.message ? e.message : e));
     }
   };
-  input.addEventListener('focus', warmBiasFix);
+  input.addEventListener('focus', ()=>{
+    warmBiasFix();
+    // เลื่อนช่องค้นหาขึ้นไปด้านบนให้มีที่ว่างสำหรับรายการ (ตอนคีย์บอร์ดเปิด)
+    setTimeout(()=>{
+      const r = input.getBoundingClientRect();
+      if(r.top > window.innerHeight*0.35) window.scrollBy({top:r.top-110, behavior:'smooth'});
+    }, 250);
+  });
+  document.addEventListener('pointerdown', e=>{
+    if(!dd.isConnected || !dd.classList.contains('open')) return;
+    if(e.target === input || dd.contains(e.target)) return;
+    close();
+  });
   input.addEventListener('input', ()=>{
     clearTimeout(timer);
     const q = input.value.trim();
     if(q.length < 2){ close(); return; }
     timer = setTimeout(async ()=>{
       const my = ++seq;
-      showMsg('กำลังค้นหา…');
+      showMsg('Searching…');
       try{
         const res = await fetchPlaceSuggestions(q);
         if(my !== seq) return; // มีคำค้นใหม่กว่าแล้ว
@@ -621,7 +699,7 @@ function attachPlaceSearch(input, slotIdx){
         renderItems();
       }catch(e){
         if(my !== seq) return;
-        showMsg('ค้นหาไม่สำเร็จ — ' + (e && e.message ? e.message : e));
+        showMsg('Search failed — ' + (e && e.message ? e.message : e));
       }
     }, 300);
   });
@@ -632,7 +710,11 @@ function attachPlaceSearch(input, slotIdx){
     else if(e.key === 'Enter'){ e.preventDefault(); choose(items[Math.max(0,active)]); }
     else if(e.key === 'Escape'){ close(); }
   });
+  let touchingDd = false;
+  dd.addEventListener('touchstart', ()=>{ touchingDd = true; }, {passive:true});
+  dd.addEventListener('touchend', ()=>{ setTimeout(()=>{ touchingDd = false; }, 400); }, {passive:true});
   input.addEventListener('blur', ()=>setTimeout(()=>{
+    if(touchingDd) return; // กำลังเลื่อน/แตะรายการอยู่ อย่าเพิ่งปิด
     close();
     // ถ้ากดค้นหาใหม่ในจุดที่บันทึกแล้ว แต่ไม่ได้เลือกอะไร -> กลับไปแสดงชื่อเดิม
     if(slotSearchOpen === slotIdx && !input.value.trim()){ slotSearchOpen = null; renderPointSlots(); }
@@ -647,11 +729,11 @@ async function reverseGeocode(lat, lng){
   if(poi) return poi;
 
   try{
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&namedetails=1&accept-language=th`);
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&namedetails=1&accept-language=en`);
     const data = await res.json();
     const a = data.address || {};
 
-    const building = (data.namedetails && data.namedetails['name:th']) || data.name || a.building || '';
+    const building = (data.namedetails && data.namedetails['name:en']) || data.name || a.building || '';
     const houseNum = a.house_number || '';
     const road = a.road || a.pedestrian || a.residential || a.footway || a.cycleway || '';
     const sub = a.suburb || a.quarter || a.neighbourhood || a.village || '';
@@ -703,7 +785,7 @@ async function findNearbyPOI(lat, lng){
         const data = await res.json();
         const candidates = (data.elements || []).map(el=>{
           const tags = el.tags || {};
-          const name = tags['name:th'] || tags.name;
+          const name = tags['name:en'] || tags.name;
           const elLat = el.lat ?? el.center?.lat;
           const elLng = el.lon ?? el.center?.lon;
           if(!name || elLat == null || elLng == null) return null;
@@ -833,7 +915,7 @@ function openCropDialog(which, displayDataUrl, ocrCanvas){
   document.getElementById('cropSkipBtn').onclick = ()=>{
     dlgEl.close();
     const statusEl = document.getElementById(which+'OcrStatus');
-    if(statusEl) statusEl.textContent = 'ข้ามการอ่านอัตโนมัติ กรุณากรอกเอง';
+    if(statusEl) statusEl.textContent = 'Auto-read skipped. Enter the number manually.';
   };
   dlgEl.showModal();
 }
@@ -861,10 +943,10 @@ function getOcrWorker(){
 async function readOdometerFromCrop(which, ocrCanvas, rel){
   const statusEl = document.getElementById(which+'OcrStatus');
   if(typeof Tesseract === 'undefined'){
-    if(statusEl) statusEl.textContent = 'โหลดตัวอ่านตัวเลขไม่สำเร็จ (เช็คอินเทอร์เน็ต) กรุณากรอกเอง';
+    if(statusEl) statusEl.textContent = 'Could not load the number reader (check internet). Enter manually.';
     return;
   }
-  if(statusEl) statusEl.textContent = 'กำลังโหลด/อ่านตัวเลขไมล์… (ครั้งแรกอาจใช้เวลาถึง 20-30 วินาที)';
+  if(statusEl) statusEl.textContent = 'Reading odometer… (first time may take 20–30 s)';
   try{
     // ครอบตัดตามกรอบที่ผู้ใช้ลาก/ปรับขนาดเอง (rel.x,y = มุมบนซ้าย, rel.w,h = ขนาด เป็นสัดส่วนของภาพ)
     const cw = Math.max(20, rel.w*ocrCanvas.width);
@@ -893,19 +975,19 @@ async function readOdometerFromCrop(which, ocrCanvas, rel){
         dayRec(currentDate)[which+'Km'] = num;
         saveDB();
         updateStats();
-        if(statusEl) statusEl.textContent = `อ่านได้ ${num} กม. — ตรวจสอบให้ตรงกับรูปก่อนบันทึก`;
+        if(statusEl) statusEl.textContent = `Read ${num} km — check it matches the photo`;
         return;
       }
     }
-    if(statusEl) statusEl.textContent = 'อ่านตัวเลขจากจุดที่แตะไม่ชัดเจน กรุณากรอกเอง หรือถ่ายใหม่แล้วแตะให้ตรงเลขไมล์มากขึ้น';
+    if(statusEl) statusEl.textContent = 'Could not read the number clearly. Enter it manually or retake the photo.';
   }catch(err){
     console.error('OCR error:', err);
     const msg = (err && err.message) || '';
     let shown;
     if(err && (err.name === 'SecurityError' || /blob|Worker/i.test(msg))){
-      shown = 'อ่านตัวเลขอัตโนมัติใช้ไม่ได้ในหน้าตัวอย่างนี้ (ข้อจำกัดของหน้าดูตัวอย่างในแชท) — ลองทดสอบอีกครั้งหลังอัปโหลดไป GitHub Pages แล้วเปิดผ่าน Safari จริงบนไอโฟน กรอกเลขเองไปก่อนได้';
+      shown = 'Auto-read is not available in this preview. Enter the number manually.';
     } else {
-      shown = 'อ่านตัวเลขอัตโนมัติไม่สำเร็จ (' + (msg || 'ข้อผิดพลาดไม่ทราบสาเหตุ') + ') กรุณากรอกเอง';
+      shown = 'Auto-read failed (' + (msg || 'unknown error') + '). Enter manually.';
     }
     if(statusEl) statusEl.textContent = shown;
   }
@@ -913,8 +995,8 @@ async function readOdometerFromCrop(which, ocrCanvas, rel){
 
 // ---------- geolocation: บันทึกได้สูงสุด 5 จุด ใช้กี่จุดก็ได้ ----------
 function captureSlot(i){
-  if(!navigator.geolocation){ dlg('ไม่รองรับ', 'อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง'); return; }
-  document.getElementById('gpsLive').textContent = `กำลังค้นหาตำแหน่งจุดที่ ${i+1}…`;
+  if(!navigator.geolocation){ dlg('Not supported', 'This device does not support location.'); return; }
+  document.getElementById('gpsLive').textContent = `Locating stop ${i+1}…`;
   navigator.geolocation.getCurrentPosition(async pos=>{
     const p = {lat:pos.coords.latitude, lng:pos.coords.longitude, t:Date.now(), label:null, src:'gps'};
     _lastFix = {lat:p.lat, lng:p.lng};
@@ -922,15 +1004,15 @@ function captureSlot(i){
     const pts = pointSlots();
     pts[i] = p;
     saveDB(); renderPointSlots();
-    document.getElementById('gpsLive').textContent = `กำลังค้นหาชื่อสถานที่จุดที่ ${i+1}…`;
+    document.getElementById('gpsLive').textContent = `Finding place name for stop ${i+1}…`;
     let name = await findNearestGooglePlace(p.lat, p.lng);
     if(!name) name = await reverseGeocode(p.lat, p.lng);
     p.label = name || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
     saveDB(); renderPointSlots();
-    document.getElementById('gpsLive').textContent = `บันทึกจุดที่ ${i+1}: ${p.label}`;
+    document.getElementById('gpsLive').textContent = `Saved stop ${i+1}: ${p.label}`;
   }, err=>{
     document.getElementById('gpsLive').textContent = '';
-    dlg('บันทึกตำแหน่งไม่สำเร็จ', 'กรุณาอนุญาตการเข้าถึงตำแหน่งใน Safari ที่ตั้งค่า > ความเป็นส่วนตัว > บริการหาตำแหน่ง');
+    dlg('Location unavailable', 'Allow location access in Settings > Privacy & Security > Location Services.');
   }, {enableHighAccuracy:true, timeout:15000});
 }
 
@@ -948,7 +1030,7 @@ document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
   rec.endKm = document.getElementById('endKm').value === '' ? null : parseFloat(document.getElementById('endKm').value);
   saveDB();
   renderHistory();
-  dlg('บันทึกแล้ว', `บันทึกข้อมูลวันที่ ${fmtDateTH(currentDate)} เรียบร้อยแล้ว`);
+  dlg('Saved', `Entry for ${fmtDateTH(currentDate)} saved.`);
 });
 
 function buildRouteUrl(pts){
@@ -973,19 +1055,19 @@ document.getElementById('viewRouteBtn').addEventListener('click', ()=>{
 function renderHistory(){
   const list = document.getElementById('historyList');
   const dates = Object.keys(db.days).sort().reverse();
-  if(dates.length===0){ list.innerHTML = '<div class="empty">ยังไม่มีข้อมูล</div>'; return; }
+  if(dates.length===0){ list.innerHTML = '<div class="empty">No entries yet</div>'; return; }
   list.innerHTML = dates.map(d=>{
     const r = db.days[d];
     let distTxt = '—';
     if(r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm){
-      distTxt = (r.endKm-r.startKm).toLocaleString(undefined,{maximumFractionDigits:1})+' กม.';
+      distTxt = (r.endKm-r.startKm).toLocaleString(undefined,{maximumFractionDigits:1})+' km';
     }
     const ptsCount = (r.points||[]).filter(p=>p!=null).length;
     return `<div class="history-item" data-day="${d}">
-      <div class="d">${fmtDateTH(d)}<span class="dist">${distTxt}${ptsCount ? ' • '+ptsCount+' จุด' : ''}</span></div>
+      <div class="d">${fmtDateTH(d)}<span class="dist">${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}</span></div>
       <div class="actions">
-        <button class="icon-btn" data-edit="${d}">✎</button>
-        <button class="icon-btn del" data-del="${d}">🗑</button>
+        <button class="icon-btn" data-edit="${d}">Edit</button>
+        <button class="icon-btn del" data-del="${d}">Delete</button>
       </div>
     </div>`;
   }).join('');
@@ -1005,7 +1087,7 @@ function renderHistory(){
   });
   list.querySelectorAll('[data-del]').forEach(b=>b.onclick=(e)=>{
     e.stopPropagation();
-    if(confirm('ลบข้อมูลวันที่ '+fmtDateTH(b.dataset.del)+' ?')){
+    if(confirm('Delete entry for '+fmtDateTH(b.dataset.del)+'?')){
       delete db.days[b.dataset.del];
       saveDB(); renderHistory(); refreshDateSelect();
       if(currentDate === b.dataset.del){ currentDate = todayStr(); loadDayIntoForm(); }
@@ -1021,8 +1103,8 @@ function refreshMonthSelect(){
   const sorted = Array.from(months).sort().reverse();
   sel.innerHTML = sorted.map(m=>{
     const [y,mo] = m.split('-');
-    const names=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
-    return `<option value="${m}">${names[parseInt(mo)-1]} ${parseInt(y)+543}</option>`;
+    const names=['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return `<option value="${m}">${names[parseInt(mo)-1]} ${parseInt(y)}</option>`;
   }).join('');
 }
 document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
@@ -1032,22 +1114,22 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
     const dist = (r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm) ? (r.endKm-r.startKm) : '';
     const cost = dist!=='' ? dist*1.2*5 : '';
     return {
-      'วันที่': fmtDateTH(d),
-      'ไมล์เริ่มต้น (กม.)': r.startKm ?? '',
-      'ไมล์สิ้นสุด (กม.)': r.endKm ?? '',
-      'ระยะทาง (กม.)': dist,
-      'ค่าเสื่อม (บาท)': cost,
-      'จำนวนจุดที่บันทึก': r.points.length
+      'Date': fmtDateTH(d),
+      'Start (km)': r.startKm ?? '',
+      'End (km)': r.endKm ?? '',
+      'Distance (km)': dist,
+      'Allowance (THB)': cost,
+      'Stops': r.points.length
     };
   });
-  if(rows.length===0){ dlg('ไม่มีข้อมูล', 'ไม่พบข้อมูลในเดือนที่เลือก'); return; }
-  const totalDist = rows.reduce((s,r)=>s + (typeof r['ระยะทาง (กม.)']==='number'? r['ระยะทาง (กม.)']:0),0);
-  const totalCost = rows.reduce((s,r)=>s + (typeof r['ค่าเสื่อม (บาท)']==='number'? r['ค่าเสื่อม (บาท)']:0),0);
-  rows.push({'วันที่':'รวม','ไมล์เริ่มต้น (กม.)':'','ไมล์สิ้นสุด (กม.)':'','ระยะทาง (กม.)':totalDist,'ค่าเสื่อม (บาท)':totalCost,'จำนวนจุดที่บันทึก':''});
+  if(rows.length===0){ dlg('No data', 'No entries in the selected month.'); return; }
+  const totalDist = rows.reduce((s,r)=>s + (typeof r['Distance (km)']==='number'? r['Distance (km)']:0),0);
+  const totalCost = rows.reduce((s,r)=>s + (typeof r['Allowance (THB)']==='number'? r['Allowance (THB)']:0),0);
+  rows.push({'Date':'Total','Start (km)':'','End (km)':'','Distance (km)':totalDist,'Allowance (THB)':totalCost,'Stops':''});
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [{wch:16},{wch:16},{wch:16},{wch:14},{wch:14},{wch:14}];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'สรุปไมล์');
+  XLSX.utils.book_append_sheet(wb, ws, 'Mileage');
   XLSX.writeFile(wb, `mileage-${month}.xlsx`);
 });
 
@@ -1062,12 +1144,12 @@ function b64ToUint8(dataUrl){
 
 function fmtDurationTH(sec){
   const m = Math.round(sec/60);
-  if(m < 60) return `${m} นาที`;
+  if(m < 60) return `${m} min`;
   const h = Math.floor(m/60), mm = m%60;
-  return mm ? `${h} ชม. ${mm} นาที` : `${h} ชม.`;
+  return mm ? `${h} hr ${mm} min` : `${h} hr`;
 }
 function fmtKmTH(meters){
-  return (meters/1000).toLocaleString(undefined,{maximumFractionDigits:1})+' กม.';
+  return (meters/1000).toLocaleString(undefined,{maximumFractionDigits:1})+' km';
 }
 
 // ---------- Google Maps Static API (ถ้าผู้ใช้ตั้งค่า API key ไว้) ----------
@@ -1086,12 +1168,12 @@ function loadGoogleMapsJS(apiKey){
     const cbName = '__gmapsInit_' + Date.now();
     window[cbName] = ()=>{ delete window[cbName]; resolve(); };
     const s = document.createElement('script');
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=${cbName}`;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=en&callback=${cbName}`;
     s.async = true;
     s.onerror = ()=>{
       s.remove();
       _gmapsJsLoadPromise = null; // ให้ลองโหลดใหม่ได้ในครั้งถัดไป (เช่น เน็ตหลุดชั่วคราว)
-      reject(new Error('โหลด Google Maps ไม่สำเร็จ — เช็คอินเทอร์เน็ตแล้วลองใหม่'));
+      reject(new Error('Could not load Google Maps — check your connection and try again'));
     };
     document.head.appendChild(s);
   });
@@ -1100,7 +1182,7 @@ function loadGoogleMapsJS(apiKey){
 // Google เรียกฟังก์ชันนี้เมื่อคีย์ถูกปฏิเสธ (เช่น จำกัดโดเมนไว้ไม่ตรงกับเว็บที่เปิดแอป / ยังไม่เปิด billing)
 let _gmapsAuthError = null;
 window.gm_authFailure = ()=>{
-  _gmapsAuthError = `Google ปฏิเสธ API key สำหรับเว็บนี้ (${location.origin}) — เช็ค Website restrictions ของคีย์ใน Google Cloud Console`;
+  _gmapsAuthError = `Google rejected the API key for this site (${location.origin}) — check the key's website restrictions in Google Cloud Console`;
   console.error(_gmapsAuthError);
 };
 function withTimeout(promise, ms, msg){
@@ -1172,7 +1254,7 @@ async function fetchGoogleDirections(pts){
         resolve({ distanceM, durationS, coords, path: path.length>1 ? path : coords, legs,
                   summary: route.summary || '', warnings: route.warnings || [] });
       } else {
-        reject(new Error('Google Directions ปฏิเสธคำขอ: '+status));
+        reject(new Error('Google Directions rejected the request: '+status));
       }
     });
   });
@@ -1227,13 +1309,13 @@ async function fetchStaticMapBase(view, apiKey){
   if(!res.ok || !ct.startsWith('image')){
     let detail = '';
     try{ detail = await res.text(); }catch(e){}
-    throw new Error(`Google Static Maps ปฏิเสธคำขอ (HTTP ${res.status}): ${(detail||ct).slice(0,400)}`);
+    throw new Error(`Google Static Maps rejected the request (HTTP ${res.status}): ${(detail||ct).slice(0,400)}`);
   }
   const blob = await res.blob();
   return await new Promise((resolve,reject)=>{
     const im = new Image();
     im.onload=()=>resolve(im);
-    im.onerror=()=>reject(new Error('โหลดรูปภาพที่ได้จาก Google ไม่สำเร็จ'));
+    im.onerror=()=>reject(new Error('Could not load the image from Google'));
     im.src = URL.createObjectURL(blob);
   });
 }
@@ -1280,10 +1362,10 @@ function drawLeftPanel(ctx, pts, route, dateStr){
 
   // หัว: วันที่ + โหมดขับรถ
   ctx.fillStyle = '#202124'; ctx.font = `600 24px ${RIMG_FONT}`;
-  ctx.fillText(dateStr ? fmtDateTH(dateStr) : 'เส้นทางการเดินทาง', 28, 40);
+  ctx.fillText(dateStr ? fmtDateTH(dateStr) : 'Route', 28, 40);
   roundRectPath(ctx, 28, 62, 118, 34, 17); ctx.fillStyle = '#c2e7ff'; ctx.fill();
   ctx.fillStyle = '#001d35'; ctx.font = `600 17px ${RIMG_FONT}`;
-  ctx.fillText('🚗 ขับรถ', 44, 79);
+  ctx.fillText('🚗 Drive', 44, 79);
   if(route){
     ctx.fillStyle = '#3c4043'; ctx.font = `17px ${RIMG_FONT}`;
     ctx.fillText(fmtDurationTH(route.durationS), 158, 79);
@@ -1302,7 +1384,7 @@ function drawLeftPanel(ctx, pts, route, dateStr){
     }
     roundRectPath(ctx, boxX, y-22, boxW, 44, 8);
     ctx.lineWidth = 1.5; ctx.strokeStyle = '#80868b'; ctx.stroke();
-    const time = p.t ? new Date(p.t).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}) : '';
+    const time = p.t ? new Date(p.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
     ctx.font = `15px ${RIMG_FONT}`;
     const timeW = time ? ctx.measureText(time).width + 12 : 0;
     ctx.fillStyle = '#202124'; ctx.font = `18px ${RIMG_FONT}`;
@@ -1327,10 +1409,10 @@ function drawLeftPanel(ctx, pts, route, dateStr){
   ctx.fillText(durTxt, P-24, y);
   const durW = ctx.measureText(durTxt).width;
   ctx.textAlign = 'left'; ctx.fillStyle = '#202124'; ctx.font = `600 20px ${RIMG_FONT}`;
-  ctx.fillText(fitText(ctx, route.summary ? `ผ่าน ${route.summary}` : 'เส้นทางขับรถ', P-24-durW-16-64), 64, y);
+  ctx.fillText(fitText(ctx, route.summary ? `via ${route.summary}` : 'Driving route', P-24-durW-16-64), 64, y);
   y += 30;
   ctx.fillStyle = '#5f6368'; ctx.font = `17px ${RIMG_FONT}`;
-  ctx.fillText('เส้นทางที่ Google Maps แนะนำ', 64, y);
+  ctx.fillText('Suggested by Google Maps', 64, y);
   ctx.textAlign = 'right'; ctx.fillText(fmtKmTH(route.distanceM), P-24, y); ctx.textAlign = 'left';
   if(route.warnings && route.warnings.length){
     y += 30;
@@ -1344,7 +1426,7 @@ function drawLeftPanel(ctx, pts, route, dateStr){
     route.legs.forEach((l,k)=>{
       if(y > H - 24) return;
       ctx.fillStyle = '#5f6368';
-      ctx.fillText(`ช่วง ${k+1}→${k+2}`, 64, y);
+      ctx.fillText(`Leg ${k+1}→${k+2}`, 64, y);
       ctx.textAlign = 'right'; ctx.fillStyle = '#3c4043';
       ctx.fillText(`${fmtKmTH(l.distanceM)} • ${fmtDurationTH(l.durationS)}`, P-24, y);
       ctx.textAlign = 'left';
@@ -1395,18 +1477,18 @@ async function buildRouteMapImage(pts, statusCb, dateStr){
   if(!pts.length) return null;
   const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
   if(!apiKey){
-    throw new Error('ระบบแผนที่ยังไม่พร้อมใช้งาน');
+    throw new Error('Maps is not available');
   }
 
   let route = null;
   if(pts.length>1){
-    if(statusCb) statusCb('กำลังคำนวณเส้นทางจาก Google Maps…');
+    if(statusCb) statusCb('Calculating route…');
     route = await fetchGoogleDirections(pts);
   }
   const linePts = route ? route.path : [];
   const view = fitMapView(linePts.concat(pts), RIMG_MAP_W/2, RIMG_MAP_H/2);
 
-  if(statusCb) statusCb('กำลังโหลดแผนที่จาก Google Maps…');
+  if(statusCb) statusCb('Loading map…');
   const base = await fetchStaticMapBase(view, apiKey);
 
   const canvas = document.createElement('canvas');
@@ -1445,7 +1527,7 @@ document.getElementById('previewMapBtn').addEventListener('click', async ()=>{
   if(!pts.length) return;
   const btn = document.getElementById('previewMapBtn');
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'กำลังสร้าง…';
+  btn.disabled = true; btn.textContent = 'Creating…';
   try{
     const res = await buildRouteMapImage(pts, null, currentDate);
     document.getElementById('mapDlgImg').src = res.dataUrl;
@@ -1453,7 +1535,7 @@ document.getElementById('previewMapBtn').addEventListener('click', async ()=>{
     save.href = res.dataUrl; save.download = `route-${currentDate}.png`;
     document.getElementById('mapDlg').showModal();
   }catch(e){
-    dlg('สร้างภาพแผนที่ไม่สำเร็จ', e && e.message ? e.message : String(e));
+    dlg('Could not create map', e && e.message ? e.message : String(e));
   }finally{
     btn.textContent = orig; btn.disabled = false;
   }
@@ -1463,9 +1545,9 @@ document.getElementById('mapDlgClose').onclick = () => document.getElementById('
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   const month = document.getElementById('monthSelect').value;
   const dates = Object.keys(db.days).filter(d=>d.startsWith(month)).sort();
-  if(dates.length===0){ dlg('ไม่มีข้อมูล', 'ไม่พบข้อมูลในเดือนที่เลือก'); return; }
+  if(dates.length===0){ dlg('No data', 'No entries in the selected month.'); return; }
   if(typeof docx === 'undefined'){
-    dlg('สร้างไฟล์ไม่สำเร็จ', 'โหลดตัวสร้างไฟล์ Word ไม่สำเร็จ กรุณาเช็คการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่');
+    dlg('Export failed', 'Could not load the Word generator. Check your connection and try again.');
     return;
   }
   const btn = document.getElementById('exportWordBtn');
@@ -1475,7 +1557,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   try{
     const { Document, Packer, Paragraph, TextRun, ImageRun, ExternalHyperlink, HeadingLevel } = docx;
     const children = [
-      new Paragraph({ text:'รายงานเลขไมล์และเส้นทางประจำเดือน', heading:HeadingLevel.HEADING_1 }),
+      new Paragraph({ text:'Monthly Mileage & Route Report', heading:HeadingLevel.HEADING_1 }),
       new Paragraph({ text:document.getElementById('monthSelect').selectedOptions[0].textContent, spacing:{after:300} })
     ];
 
@@ -1483,7 +1565,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
       const d = dates[di];
       const r = db.days[d];
 
-      btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length})`;
+      btn.textContent = `Creating file… (${di+1}/${dates.length})`;
 
       children.push(new Paragraph({ text:fmtDateShort(d), heading:HeadingLevel.HEADING_2, spacing:{before:400}, pageBreakBefore: di>0 }));
 
@@ -1510,7 +1592,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
         // ไม่ fallback เป็นแผนที่อื่น — ถ้า Google Maps ใช้งานไม่ได้ จะ throw error ออกไปทันทีและหยุดสร้างไฟล์
         const mapResult = await buildRouteMapImage(
           pts,
-          t=>{ btn.textContent = `กำลังสร้างไฟล์… (${di+1}/${dates.length}) ${t}`; },
+          t=>{ btn.textContent = `Creating file… (${di+1}/${dates.length}) ${t}`; },
           d
         );
         if(mapResult && mapResult.dataUrl){
@@ -1527,7 +1609,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
     a.click();
   }catch(err){
     console.error('Word export error:', err);
-    dlg('สร้างไฟล์ไม่สำเร็จ', 'เกิดข้อผิดพลาดระหว่างสร้างไฟล์ Word: ' + (err && err.message ? err.message : 'ไม่ทราบสาเหตุ'));
+    dlg('Export failed', 'Error while creating the Word file: ' + (err && err.message ? err.message : 'unknown error'));
   }finally{
     btn.textContent = originalText;
     btn.disabled = false;
@@ -1564,13 +1646,37 @@ document.getElementById('restoreFile').addEventListener('change', e=>{
       db = parsed;
       saveDB();
       loadDayIntoForm(); renderHistory(); refreshMonthSelect(); refreshDateSelect();
-      dlg('สำเร็จ', 'กู้คืนข้อมูลเรียบร้อยแล้ว');
+      dlg('Restored', 'Your data has been restored.');
     }catch(err){
-      dlg('ไฟล์ไม่ถูกต้อง', 'ไม่สามารถอ่านไฟล์สำรองนี้ได้');
+      dlg('Invalid file', 'This backup file could not be read.');
     }
   };
   reader.readAsText(file);
 });
+
+// ---------- theme switch ----------
+(function initTheme(){
+  const sw = document.getElementById('themeSwitch');
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  const isDark = ()=>{
+    const t = document.documentElement.dataset.theme;
+    return t ? t === 'dark' : mq.matches;
+  };
+  const sync = ()=>{
+    sw.checked = isDark();
+    if(meta) meta.setAttribute('content', isDark() ? '#000000' : '#f2f2f7');
+  };
+  sw.addEventListener('change', ()=>{
+    const t = sw.checked ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+    try{ localStorage.setItem('theme', t); }catch(e){}
+    sync();
+  });
+  // ถ้ายังไม่เคยเลือกเอง ให้ตามการตั้งค่าของเครื่อง
+  mq.addEventListener && mq.addEventListener('change', sync);
+  sync();
+})();
 
 // ---------- init ----------
 function switchTab(name){
