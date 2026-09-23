@@ -1274,15 +1274,26 @@ function openCropDialog(which, displayDataUrl, ocrCanvas){
 
 // ---------- OCR: อ่านเฉพาะบริเวณที่แตะ ----------
 let ocrWorkerPromise = null;
+let ocrLoadProgress = 0;          // 0..1 ระหว่างโหลดตัวอ่าน (ไฟล์ ~7MB ครั้งแรก)
+let ocrProgressListener = null;   // ให้สถานะใต้ช่องไมล์แสดง % ระหว่างรอ
 function getOcrWorker(){
+  if(typeof Tesseract === 'undefined') return Promise.reject(new Error('Tesseract not loaded'));
   if(!ocrWorkerPromise){
     ocrWorkerPromise = Tesseract.createWorker('eng', 1, {
-      logger: () => {}
+      logger: m => {
+        if(!m || typeof m.progress !== 'number') return;
+        // ขั้นตอนโหลด: loading tesseract core → loading language traineddata → initializing
+        const stage = /core/i.test(m.status) ? 0 : /language|traineddata/i.test(m.status) ? 1 : /initializ/i.test(m.status) ? 2 : -1;
+        if(stage < 0) return;
+        ocrLoadProgress = Math.max(ocrLoadProgress, (stage + m.progress) / 3);
+        if(ocrProgressListener) ocrProgressListener(ocrLoadProgress);
+      }
     }).then(async worker => {
       await worker.setParameters({
         tessedit_char_whitelist: '0123456789',
         tessedit_pageseg_mode: '7' // treat crop as a single line of text
       });
+      ocrLoadProgress = 1;
       return worker;
     }).catch(err=>{
       ocrWorkerPromise = null;
@@ -1292,13 +1303,27 @@ function getOcrWorker(){
   return ocrWorkerPromise;
 }
 
+// โหลดตัวอ่านไว้ล่วงหน้าเงียบๆ หลังเปิดแอป เพื่อให้พอถ่ายรูปแล้วอ่านได้ทันที
+function preloadOcr(){
+  if(typeof Tesseract === 'undefined') return;
+  getOcrWorker().catch(()=>{});
+}
+(function schedulePreload(){
+  const go = ()=> (window.requestIdleCallback ? requestIdleCallback(preloadOcr, {timeout:4000}) : setTimeout(preloadOcr, 1500));
+  if(document.readyState === 'complete') go(); else window.addEventListener('load', go);
+  // แตะช่องรูปไมล์ = เริ่มโหลดทันที (ระหว่างเปิดกล้อง/เลือกรูป)
+  ['startPhotoBtn','endPhotoBtn'].forEach(id=>document.getElementById(id).addEventListener('pointerdown', preloadOcr, {passive:true}));
+})();
+
 async function readOdometerFromCrop(which, ocrCanvas, rel){
   const statusEl = document.getElementById(which+'OcrStatus');
   if(typeof Tesseract === 'undefined'){
     if(statusEl) statusEl.textContent = 'Could not load the number reader (check internet). Enter manually.';
     return;
   }
-  if(statusEl) statusEl.textContent = 'Reading odometer… (first time may take 20–30 s)';
+  const workerReady = ocrLoadProgress >= 1;
+  if(statusEl) statusEl.textContent = workerReady ? 'Reading odometer…' : `Loading reader… ${Math.round(ocrLoadProgress*100)}%`;
+  ocrProgressListener = p => { if(statusEl && p < 1) statusEl.textContent = `Loading reader… ${Math.round(p*100)}%`; };
   try{
     // ครอบตัดตามกรอบที่ผู้ใช้ลาก/ปรับขนาดเอง (rel.x,y = มุมบนซ้าย, rel.w,h = ขนาด เป็นสัดส่วนของภาพ)
     const cw = Math.max(20, rel.w*ocrCanvas.width);
@@ -1317,6 +1342,8 @@ async function readOdometerFromCrop(which, ocrCanvas, rel){
     cctx.drawImage(ocrCanvas, sx, sy, cw, ch, 0, 0, cropCanvas.width, cropCanvas.height);
 
     const worker = await getOcrWorker();
+    ocrProgressListener = null;
+    if(statusEl) statusEl.textContent = 'Reading odometer…';
     const { data } = await worker.recognize(cropCanvas);
     const digitsOnly = (data.text || '').replace(/[^0-9]/g,' ').trim().split(/\s+/).filter(Boolean);
     if(digitsOnly.length){
@@ -2028,6 +2055,11 @@ document.getElementById('restoreFile').addEventListener('change', e=>{
   };
   reader.readAsText(file);
 });
+
+// ---------- offline cache for libraries (OCR engine ~7MB, Excel/Word libs) ----------
+if('serviceWorker' in navigator && location.protocol === 'https:'){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
 
 // ---------- theme switch ----------
 (function initTheme(){
