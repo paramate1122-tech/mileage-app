@@ -279,7 +279,7 @@
   </header>
 
   <div class="tabbar">
-    <button class="tab-btn active" id="tabBtnToday" data-tab="today">Today</button>
+    <button class="tab-btn active" id="tabBtnToday" data-tab="today">Home</button>
     <button class="tab-btn" id="tabBtnHistory" data-tab="history">History</button>
   </div>
 
@@ -295,7 +295,7 @@
   </div>
   <div class="past-banner" id="pastBanner">
     <div class="txt" id="pastBannerText"></div>
-    <button id="backHistoryBtn">Done</button>
+    <button id="backHistoryBtn">Today</button>
   </div>
 
   <!-- ODOMETER CARD -->
@@ -525,7 +525,7 @@ function openPastDay(ds){
   if(ds > todayStr()) return;
   editingPast = true;
   currentDate = ds;
-  showForm('history');
+  showForm('today');
 }
 // กลับไปหน้า Today (ฟอร์มว่างของวันนี้)
 function openToday(){
@@ -543,7 +543,7 @@ function showForm(activeTab){
   document.getElementById('tabHistory').style.display = 'none';
   window.scrollTo({top:0, behavior:'smooth'});
 }
-document.getElementById('backHistoryBtn').addEventListener('click', ()=>switchTab('history'));
+document.getElementById('backHistoryBtn').addEventListener('click', ()=>openToday());
 // ในหน้าแก้วันย้อนหลัง: เลื่อนวันด้วย ‹ › หรือแตะวันที่เพื่อเปิดปฏิทิน
 function hopPastDay(ds){
   if(!ds || ds > todayStr() || ds === currentDate) return;
@@ -1164,8 +1164,8 @@ document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
     if(!hasData(rec)) delete db.days[currentDate];
     saveDB();
     const label = fmtDateLong(currentDate);
-    switchTab('history');
-    dlg('Saved', `Entry for ${label} saved.`);
+    openToday();
+    dlg('Saved', `Entry for ${label} saved to History.`);
     return;
   }
 
