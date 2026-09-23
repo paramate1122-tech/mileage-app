@@ -86,13 +86,35 @@
   @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tab-btn.active{ background:#636366; } }
   :root[data-theme="dark"] .tab-btn.active{ background:#636366; }
 
-  .datebar{ display:flex; align-items:center; justify-content:space-between; margin:22px 4px 10px; }
-  .datebar select{
-    -webkit-appearance:none; appearance:none;
-    background:var(--fill); color:var(--accent); border:none; border-radius:8px;
-    padding:6px 12px; font-family:var(--sans); font-size:15px; font-weight:500;
-  }
-  .datebar .today-badge{ font-size:13px; color:var(--muted); font-weight:500; }
+  .datebar{ display:flex; align-items:center; gap:8px; margin:22px 0 10px; }
+  .day-nav{ width:36px; height:36px; border-radius:50%; border:none; background:var(--fill); color:var(--accent);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; padding:0;
+    transition:opacity .15s, transform .1s; }
+  .day-nav:active{ transform:scale(.92); }
+  .day-nav:disabled{ opacity:.3; }
+  .day-nav svg{ width:18px; height:18px; }
+  .date-pill{ position:relative; flex:1; min-width:0; height:36px; border-radius:18px; background:var(--fill);
+    display:flex; align-items:center; justify-content:center; gap:7px; color:var(--text);
+    font-size:16px; font-weight:600; overflow:hidden; cursor:pointer; }
+  .date-pill svg{ width:17px; height:17px; color:var(--accent); flex-shrink:0; }
+  .date-pill .rel{ font-weight:500; color:var(--muted); }
+  /* native date picker sits invisibly on top so a tap opens the iOS/Android calendar */
+  .date-overlay{ position:absolute; inset:0; width:100%; height:100%; opacity:0; border:none; font-size:16px; cursor:pointer; -webkit-appearance:none; appearance:none; }
+  .date-overlay::-webkit-calendar-picker-indicator{ position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+
+  .past-banner{ display:none; align-items:center; gap:10px; margin:0 0 14px; padding:10px 12px 10px 14px;
+    border-radius:12px; background:color-mix(in srgb, var(--accent) 12%, transparent); color:var(--text); font-size:14px; }
+  .past-banner.show{ display:flex; animation:ddIn .2s ease-out; }
+  .past-banner .txt{ flex:1; min-width:0; line-height:1.35; }
+  .past-banner .txt b{ font-weight:600; }
+  .past-banner button{ border:none; background:var(--accent); color:#fff; font-family:var(--sans); font-size:14px; font-weight:600;
+    padding:7px 14px; border-radius:16px; cursor:pointer; flex-shrink:0; }
+
+  .add-past{ position:relative; overflow:hidden; margin-bottom:14px; }
+  .add-past svg{ width:18px; height:18px; }
+
+  #tabToday{ transition:opacity .18s ease; }
+  #tabToday.switching{ opacity:.35; }
 
   .card{ background:var(--panel); border-radius:12px; padding:16px; margin-bottom:22px; box-shadow:var(--shadow); }
   .card h2{
@@ -263,8 +285,17 @@
 
   <div id="tabToday">
   <div class="datebar">
-    <select id="dateSelect"></select>
-    <span class="today-badge" id="todayBadge"></span>
+    <button class="day-nav" id="prevDayBtn" aria-label="Previous day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <label class="date-pill" id="datePill">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+      <span id="datePillText"></span>
+      <input type="date" class="date-overlay" id="datePicker" aria-label="Choose date">
+    </label>
+    <button class="day-nav" id="nextDayBtn" aria-label="Next day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+  </div>
+  <div class="past-banner" id="pastBanner">
+    <div class="txt" id="pastBannerText"></div>
+    <button id="backTodayBtn">Today</button>
   </div>
 
   <!-- ODOMETER CARD -->
@@ -310,7 +341,7 @@
       </div>
     </div>
     <div class="divider"></div>
-    <div class="stat-row"><span class="label">Distance today</span><span class="value amber" id="distToday">—</span></div>
+    <div class="stat-row"><span class="label">Distance</span><span class="value amber" id="distToday">—</span></div>
     <div class="stat-row"><span class="label">Allowance (km × 1.2 × 5)</span><span class="value teal" id="costToday">—</span></div>
   </div>
 
@@ -334,8 +365,13 @@
   <!-- HISTORY -->
   <div class="card">
     <h2>All entries</h2>
+    <label class="btn btn-ghost add-past" id="addPastBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Add a past day
+      <input type="date" class="date-overlay" id="addPastPicker" aria-label="Choose a past day">
+    </label>
     <div id="historyList"></div>
-    <div class="hint">Tap a day to view or edit it.</div>
+    <div class="hint">Tap a day to view or edit it. Use “Add a past day” to fill in a day you missed.</div>
   </div>
 
   <!-- EXPORT -->
@@ -432,27 +468,85 @@ function dlg(title, body){
 }
 document.getElementById('msgOk').onclick = () => document.getElementById('msgDlg').close();
 
-// ---------- date selector ----------
+// ---------- date navigation ----------
+function parseDate(ds){ const [y,m,d] = ds.split('-').map(Number); return new Date(y, m-1, d); }
+function toDateStr(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+function addDays(ds, n){ const dt = parseDate(ds); dt.setDate(dt.getDate()+n); return toDateStr(dt); }
+function daysAgo(ds){ return Math.round((parseDate(todayStr()) - parseDate(ds)) / 86400000); }
+function relDayLabel(ds){
+  const n = daysAgo(ds);
+  if(n === 0) return 'Today';
+  if(n === 1) return 'Yesterday';
+  if(n > 1 && n < 7) return `${n} days ago`;
+  return '';
+}
+const _WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtDayMonth(ds){ const dt = parseDate(ds); return `${dt.getDate()} ${_MO[dt.getMonth()]}`; }
+function fmtDateLong(ds){ const dt = parseDate(ds); return `${_WD[dt.getDay()]}, ${fmtDayMonth(ds)} ${dt.getFullYear()}`; }
+// วันที่ไม่มีข้อมูลอะไรเลย (เปิดดูเฉยๆ) ไม่ต้องแสดงในประวัติ/รายงาน
+function hasData(r){
+  if(!r) return false;
+  return r.startKm != null || r.endKm != null || !!r.startPhoto || !!r.endPhoto || (r.points||[]).some(p=>p!=null);
+}
+function dataDates(){ return Object.keys(db.days).filter(d=>hasData(db.days[d])); }
+
 function refreshDateSelect(){
-  const sel = document.getElementById('dateSelect');
-  const dates = new Set(Object.keys(db.days));
-  dates.add(todayStr());
-  dates.add(currentDate);
-  const sorted = Array.from(dates).sort().reverse();
-  sel.innerHTML = sorted.map(d => `<option value="${d}" ${d===currentDate?'selected':''}>${fmtDateTH(d)}</option>`).join('');
-  document.getElementById('todayBadge').textContent = currentDate === todayStr() ? 'Today' : '';
+  const today = todayStr();
+  const rel = relDayLabel(currentDate);
+  const txt = document.getElementById('datePillText');
+  txt.innerHTML = rel === 'Today'
+    ? `Today <span class="rel">· ${escHtml(fmtDayMonth(currentDate))}</span>`
+    : escHtml(fmtDateLong(currentDate)) + (rel ? ` <span class="rel">· ${rel}</span>` : '');
+  const picker = document.getElementById('datePicker');
+  picker.value = currentDate;
+  picker.max = today;
+  document.getElementById('addPastPicker').max = addDays(today, -1);
+  document.getElementById('nextDayBtn').disabled = currentDate >= today;
+
+  const banner = document.getElementById('pastBanner');
+  if(currentDate !== today){
+    document.getElementById('pastBannerText').innerHTML = hasData(db.days[currentDate])
+      ? `Editing <b>${escHtml(fmtDateLong(currentDate))}</b>`
+      : `Adding a past entry for <b>${escHtml(fmtDateLong(currentDate))}</b>`;
+    banner.classList.add('show');
+  } else banner.classList.remove('show');
+  document.getElementById('saveTodayBtn').textContent = currentDate === today
+    ? 'Save' : `Save ${fmtDayMonth(currentDate)}`;
+
   const hd = document.getElementById('headerDate');
   if(hd) hd.textContent = new Date().toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'});
 }
-document.getElementById('dateSelect').addEventListener('change', e=>{
-  currentDate = e.target.value;
-  loadDayIntoForm();
+function goToDate(ds){
+  if(!ds) return;
+  if(ds > todayStr()) ds = todayStr(); // บันทึกล่วงหน้าไม่ได้
+  if(ds === currentDate) return;
+  const tab = document.getElementById('tabToday');
+  tab.classList.add('switching');
+  setTimeout(()=>{
+    currentDate = ds;
+    slotSearchOpen = null;
+    document.getElementById('gpsLive').textContent = '';
+    loadDayIntoForm();
+    tab.classList.remove('switching');
+  }, 120);
+}
+document.getElementById('prevDayBtn').addEventListener('click', ()=>goToDate(addDays(currentDate, -1)));
+document.getElementById('nextDayBtn').addEventListener('click', ()=>goToDate(addDays(currentDate, 1)));
+document.getElementById('backTodayBtn').addEventListener('click', ()=>goToDate(todayStr()));
+document.getElementById('datePicker').addEventListener('change', e=>goToDate(e.target.value));
+document.getElementById('addPastPicker').addEventListener('change', e=>{
+  const ds = e.target.value;
+  if(!ds) return;
+  switchTab('today');
+  goToDate(ds);
+  e.target.value = '';
 });
-
-// เพิ่มวันนี้เข้า selector เสมอถ้ายังไม่มี
-(function ensureToday(){
-  if(!db.days[todayStr()]) dayRec(todayStr());
-})();
+// บนคอมพิวเตอร์ คลิกแล้วเปิดปฏิทินเลย (บนมือถือแตะแล้วเปิดเองอยู่แล้ว)
+['datePicker','addPastPicker'].forEach(id=>{
+  const el = document.getElementById(id);
+  el.addEventListener('click', ()=>{ try{ el.showPicker && el.showPicker(); }catch(e){} });
+});
 
 // ---------- form <-> data ----------
 function loadDayIntoForm(){
@@ -501,7 +595,7 @@ function renderPointSlots(){
     const filled = p != null;
     const showSearch = !filled || slotSearchOpen === i;
     const name = filled ? (p.label || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`) : '';
-    const time = filled ? new Date(p.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
+    const time = filled && p.t ? new Date(p.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
     const info = showSearch
       ? `<div class="place-search">
            <input type="search" data-search="${i}" placeholder="${filled ? 'Search new place…' : 'Search a place'}" autocomplete="off" enterkeyhint="search">
@@ -664,7 +758,7 @@ function attachPlaceSearch(input, slotIdx){
     showMsg('Saving '+it.main+'…');
     try{
       const r = await it.resolve();
-      pointSlots()[slotIdx] = { lat:r.lat, lng:r.lng, t:Date.now(), label:r.name, src:'search' };
+      pointSlots()[slotIdx] = { lat:r.lat, lng:r.lng, t: currentDate === todayStr() ? Date.now() : null, label:r.name, src:'search' };
       slotSearchOpen = null;
       saveDB(); renderPointSlots();
       document.getElementById('gpsLive').textContent = `Saved stop ${slotIdx+1}: ${r.name}`;
@@ -1029,7 +1123,7 @@ document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
   rec.startKm = document.getElementById('startKm').value === '' ? null : parseFloat(document.getElementById('startKm').value);
   rec.endKm = document.getElementById('endKm').value === '' ? null : parseFloat(document.getElementById('endKm').value);
   saveDB();
-  renderHistory();
+  renderHistory(); refreshMonthSelect(); refreshDateSelect();
   dlg('Saved', `Entry for ${fmtDateTH(currentDate)} saved.`);
 });
 
@@ -1054,7 +1148,7 @@ document.getElementById('viewRouteBtn').addEventListener('click', ()=>{
 // ---------- history ----------
 function renderHistory(){
   const list = document.getElementById('historyList');
-  const dates = Object.keys(db.days).sort().reverse();
+  const dates = dataDates().sort().reverse();
   if(dates.length===0){ list.innerHTML = '<div class="empty">No entries yet</div>'; return; }
   list.innerHTML = dates.map(d=>{
     const r = db.days[d];
@@ -1064,7 +1158,7 @@ function renderHistory(){
     }
     const ptsCount = (r.points||[]).filter(p=>p!=null).length;
     return `<div class="history-item" data-day="${d}">
-      <div class="d">${fmtDateTH(d)}<span class="dist">${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}</span></div>
+      <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}</span></div>
       <div class="actions">
         <button class="icon-btn" data-edit="${d}">Edit</button>
         <button class="icon-btn del" data-del="${d}">Delete</button>
@@ -1098,18 +1192,20 @@ function renderHistory(){
 // ---------- export excel ----------
 function refreshMonthSelect(){
   const sel = document.getElementById('monthSelect');
-  const months = new Set(Object.keys(db.days).map(d=>d.slice(0,7)));
+  const months = new Set(dataDates().map(d=>d.slice(0,7)));
   months.add(todayStr().slice(0,7));
   const sorted = Array.from(months).sort().reverse();
+  const prev = sel.value;
   sel.innerHTML = sorted.map(m=>{
     const [y,mo] = m.split('-');
     const names=['January','February','March','April','May','June','July','August','September','October','November','December'];
     return `<option value="${m}">${names[parseInt(mo)-1]} ${parseInt(y)}</option>`;
   }).join('');
+  if(prev && sorted.includes(prev)) sel.value = prev;
 }
 document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   const month = document.getElementById('monthSelect').value;
-  const rows = Object.keys(db.days).filter(d=>d.startsWith(month)).sort().map(d=>{
+  const rows = dataDates().filter(d=>d.startsWith(month)).sort().map(d=>{
     const r = db.days[d];
     const dist = (r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm) ? (r.endKm-r.startKm) : '';
     const cost = dist!=='' ? dist*1.2*5 : '';
@@ -1119,7 +1215,7 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
       'End (km)': r.endKm ?? '',
       'Distance (km)': dist,
       'Allowance (THB)': cost,
-      'Stops': r.points.length
+      'Stops': (r.points||[]).filter(p=>p!=null).length
     };
   });
   if(rows.length===0){ dlg('No data', 'No entries in the selected month.'); return; }
@@ -1544,7 +1640,7 @@ document.getElementById('mapDlgClose').onclick = () => document.getElementById('
 
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   const month = document.getElementById('monthSelect').value;
-  const dates = Object.keys(db.days).filter(d=>d.startsWith(month)).sort();
+  const dates = dataDates().filter(d=>d.startsWith(month)).sort();
   if(dates.length===0){ dlg('No data', 'No entries in the selected month.'); return; }
   if(typeof docx === 'undefined'){
     dlg('Export failed', 'Could not load the Word generator. Check your connection and try again.');
@@ -1684,7 +1780,7 @@ function switchTab(name){
   document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
   document.getElementById('tabToday').style.display = name==='today' ? '' : 'none';
   document.getElementById('tabHistory').style.display = name==='history' ? '' : 'none';
-  if(name==='history') renderHistory();
+  if(name==='history'){ renderHistory(); refreshMonthSelect(); }
   window.scrollTo({top:0, behavior:'smooth'});
 }
 document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
