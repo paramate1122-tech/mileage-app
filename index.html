@@ -101,8 +101,34 @@
   .date-pill svg{ width:17px; height:17px; color:var(--accent); flex-shrink:0; }
   .date-pill .rel{ font-weight:500; color:var(--muted); }
   /* native date picker sits invisibly on top so a tap opens the iOS/Android calendar */
-  .date-overlay{ position:absolute; inset:0; width:100%; height:100%; opacity:0; border:none; font-size:16px; cursor:pointer; -webkit-appearance:none; appearance:none; }
-  .date-overlay::-webkit-calendar-picker-indicator{ position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+  .date-pill{ border:none; font-family:inherit; }
+
+  /* in-app calendar (เลือกวันแล้วค่อยไป — ไม่ใช้ date picker ของ iOS ที่เปลี่ยนค่าทันทีระหว่างหมุน) */
+  #calDlg{ max-width:360px; width:92vw; }
+  #calDlg .dlg-body{ text-align:left; padding:16px 14px 12px; }
+  .cal-head{ display:flex; align-items:center; justify-content:space-between; margin:0 4px 10px; }
+  .cal-title{ font-size:17px; font-weight:600; }
+  .cal-nav{ display:flex; gap:4px; }
+  .cal-nav button{ width:34px; height:34px; border:none; border-radius:50%; background:transparent; color:var(--accent);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+  .cal-nav button:active{ background:var(--fill); }
+  .cal-nav button:disabled{ opacity:.3; }
+  .cal-nav svg{ width:18px; height:18px; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); row-gap:4px; text-align:center; }
+  .cal-wd{ font-size:12px; font-weight:600; color:var(--muted); padding:4px 0 6px; text-transform:uppercase; }
+  .cal-day{ position:relative; height:42px; border:none; background:transparent; color:var(--text); font-size:18px;
+    border-radius:50%; width:42px; margin:0 auto; cursor:pointer; padding:0; font-variant-numeric:tabular-nums;
+    transition:background-color .12s ease, transform .1s ease; }
+  .cal-day:active{ transform:scale(.92); }
+  .cal-day.today{ color:var(--accent); font-weight:600; }
+  .cal-day.sel{ background:var(--accent); color:#fff; font-weight:600; }
+  .cal-day:disabled{ color:var(--muted); opacity:.35; cursor:default; }
+  .cal-day .dot{ position:absolute; left:50%; bottom:5px; width:5px; height:5px; margin-left:-2.5px; border-radius:50%; background:var(--accent); }
+  .cal-day.sel .dot{ background:#fff; }
+  .cal-foot{ display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding:0 4px; }
+  .cal-legend{ font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .cal-legend i{ width:6px; height:6px; border-radius:50%; background:var(--accent); display:inline-block; }
+  .cal-foot button{ border:none; background:none; color:var(--accent); font-size:17px; font-family:inherit; padding:8px 6px; cursor:pointer; }
 
   .past-banner{ display:none; align-items:center; gap:10px; margin:0 0 14px; padding:10px 12px 10px 14px;
     border-radius:12px; background:color-mix(in srgb, var(--accent) 12%, transparent); color:var(--text); font-size:14px; }
@@ -288,11 +314,10 @@
   <div id="tabToday" style="padding-top:18px;">
   <div class="datebar" id="dateBar" style="display:none;">
     <button class="day-nav" id="prevDayBtn" aria-label="Previous day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
-    <label class="date-pill" id="datePill">
+    <button class="date-pill" id="datePill" aria-label="Choose date">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
       <span id="datePillText"></span>
-      <input type="date" class="date-overlay" id="datePicker" aria-label="Choose date">
-    </label>
+    </button>
     <button class="day-nav" id="nextDayBtn" aria-label="Next day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
   </div>
   <div class="past-banner" id="pastBanner">
@@ -367,11 +392,10 @@
   <!-- HISTORY -->
   <div class="card">
     <h2>All entries</h2>
-    <label class="btn btn-ghost add-past" id="addPastBtn">
+    <button class="btn btn-ghost add-past" id="addPastBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       Add a past day
-      <input type="date" class="date-overlay" id="addPastPicker" aria-label="Choose a past day">
-    </label>
+    </button>
     <div id="historyList"></div>
     <div class="hint">Tap a day to view or edit it. Use “Add a past day” to fill in a day you missed.</div>
   </div>
@@ -405,6 +429,23 @@
     <h3 id="msgTitle">Notice</h3>
     <p id="msgBody"></p>
     <button class="btn btn-primary" id="msgOk">OK</button>
+  </div>
+</dialog>
+
+<dialog id="calDlg">
+  <div class="dlg-body">
+    <div class="cal-head">
+      <div class="cal-title" id="calTitle"></div>
+      <div class="cal-nav">
+        <button id="calPrev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button id="calNext" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+      </div>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="cal-foot">
+      <span class="cal-legend"><i></i> Has entry</span>
+      <button id="calCancel">Cancel</button>
+    </div>
   </div>
 </dialog>
 
@@ -508,9 +549,6 @@ function refreshDateSelect(){
   if(editingPast){
     const rel = relDayLabel(currentDate);
     document.getElementById('datePillText').innerHTML = escHtml(fmtDateLong(currentDate)) + (rel ? ` <span class="rel">· ${rel}</span>` : '');
-    const picker = document.getElementById('datePicker');
-    picker.value = currentDate;
-    picker.max = todayStr();
     document.getElementById('nextDayBtn').disabled = currentDate >= todayStr();
     document.getElementById('pastBannerText').innerHTML = hasData(db.days[currentDate])
       ? `Editing <b>${escHtml(fmtDateLong(currentDate))}</b>`
@@ -561,14 +599,61 @@ function hopPastDay(ds){
 }
 document.getElementById('prevDayBtn').addEventListener('click', ()=>hopPastDay(addDays(currentDate, -1)));
 document.getElementById('nextDayBtn').addEventListener('click', ()=>hopPastDay(addDays(currentDate, 1)));
-document.getElementById('datePicker').addEventListener('change', e=>hopPastDay(e.target.value));
-document.getElementById('datePicker').addEventListener('click', e=>{ try{ e.target.showPicker && e.target.showPicker(); }catch(err){} });
-document.getElementById('addPastPicker').addEventListener('change', e=>{
-  const ds = e.target.value;
-  e.target.value = '';
-  openPastDay(ds);
+document.getElementById('datePill').addEventListener('click', ()=>openCalendar(currentDate, todayStr(), ds=>hopPastDay(ds)));
+document.getElementById('addPastBtn').addEventListener('click', ()=>{
+  const max = addDays(todayStr(), -1);
+  openCalendar(max, max, ds=>openPastDay(ds));
 });
-document.getElementById('addPastPicker').addEventListener('click', e=>{ try{ e.target.showPicker && e.target.showPicker(); }catch(err){} });
+
+// ---------- in-app calendar ----------
+// เลือกวันด้วยการแตะวันที่ในปฏิทินเท่านั้น (เลื่อนเดือนได้) — ไม่มีอะไรเกิดขึ้นจนกว่าจะแตะวัน
+const calState = { year:0, month:0, selected:null, max:null, onPick:null };
+function openCalendar(selected, max, onPick){
+  const base = parseDate(selected || max);
+  Object.assign(calState, { year:base.getFullYear(), month:base.getMonth(), selected, max, onPick });
+  renderCalendar();
+  document.getElementById('calDlg').showModal();
+}
+function renderCalendar(){
+  const { year, month, selected, max } = calState;
+  const names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('calTitle').textContent = `${names[month]} ${year}`;
+  const maxD = parseDate(max);
+  document.getElementById('calNext').disabled = (year > maxD.getFullYear()) || (year === maxD.getFullYear() && month >= maxD.getMonth());
+  const first = new Date(year, month, 1);
+  const lead = (first.getDay() + 6) % 7; // เริ่มสัปดาห์วันจันทร์
+  const days = new Date(year, month+1, 0).getDate();
+  const today = todayStr();
+  let html = ['Mo','Tu','We','Th','Fr','Sa','Su'].map(w=>`<div class="cal-wd">${w}</div>`).join('');
+  for(let k=0;k<lead;k++) html += '<div></div>';
+  for(let d=1; d<=days; d++){
+    const ds = toDateStr(new Date(year, month, d));
+    const cls = ['cal-day'];
+    if(ds === today) cls.push('today');
+    if(ds === selected) cls.push('sel');
+    const dot = hasData(db.days[ds]) ? '<span class="dot"></span>' : '';
+    html += `<button class="${cls.join(' ')}" data-ds="${ds}" ${ds > max ? 'disabled' : ''}>${d}${dot}</button>`;
+  }
+  const grid = document.getElementById('calGrid');
+  grid.innerHTML = html;
+  grid.querySelectorAll('[data-ds]').forEach(b=>b.addEventListener('click', ()=>{
+    const ds = b.dataset.ds;
+    const cb = calState.onPick;
+    document.getElementById('calDlg').close();
+    if(cb) cb(ds);
+  }));
+}
+document.getElementById('calPrev').addEventListener('click', ()=>{
+  if(--calState.month < 0){ calState.month = 11; calState.year--; }
+  renderCalendar();
+});
+document.getElementById('calNext').addEventListener('click', ()=>{
+  if(++calState.month > 11){ calState.month = 0; calState.year++; }
+  renderCalendar();
+});
+document.getElementById('calCancel').addEventListener('click', ()=>document.getElementById('calDlg').close());
+// แตะพื้นหลังนอกปฏิทินเพื่อปิด
+document.getElementById('calDlg').addEventListener('click', e=>{ if(e.target.id === 'calDlg') e.target.close(); });
 
 // ถ้ามี draft ค้างจากวันก่อน (กรอกแล้วลืมกด Save) บันทึกเข้าวันนั้นให้อัตโนมัติ
 (function flushStaleDraft(){
@@ -1834,7 +1919,7 @@ function switchTab(name){
   document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
   document.getElementById('tabToday').style.display = name==='today' ? '' : 'none';
   document.getElementById('tabHistory').style.display = name==='history' ? '' : 'none';
-  if(name==='history'){ renderHistory(); refreshMonthSelect(); document.getElementById('addPastPicker').max = addDays(todayStr(), -1); }
+  if(name==='history'){ renderHistory(); refreshMonthSelect(); }
   window.scrollTo({top:0, behavior:'smooth'});
 }
 document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
