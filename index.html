@@ -513,12 +513,13 @@ async function fetchPlaceSuggestions(query){
   const token = _acSessionToken;
   const bias = searchBiasCenter();
 
+  let newApiErr = null;
   if(P.AutocompleteSuggestion && !fetchPlaceSuggestions._newApiFailed){
     try{
       const req = { input:query, sessionToken:token, language:'th', region:'th' };
       if(bias) req.locationBias = { center:bias, radius:50000 };
-      const { suggestions } = await P.AutocompleteSuggestion.fetchAutocompleteSuggestions(req);
-      return suggestions.filter(s=>s.placePrediction).map(s=>{
+      const { suggestions } = await withTimeout(P.AutocompleteSuggestion.fetchAutocompleteSuggestions(req), 7000, 'Google ตอบช้าเกินไป');
+      const list = suggestions.filter(s=>s.placePrediction).map(s=>{
         const pp = s.placePrediction;
         const main = (pp.mainText && pp.mainText.text) || pp.text.text;
         return {
@@ -526,28 +527,40 @@ async function fetchPlaceSuggestions(query){
           sub: (pp.secondaryText && pp.secondaryText.text) || '',
           resolve: async ()=>{
             const place = pp.toPlace();
-            await place.fetchFields({ fields:['displayName','location','formattedAddress'] });
+            await withTimeout(place.fetchFields({ fields:['displayName','location','formattedAddress'] }), 10000, 'Google ตอบช้าเกินไป');
             _acSessionToken = null;
             return { name: place.displayName || main, lat: place.location.lat(), lng: place.location.lng() };
           }
         };
       });
+      if(list.length) return list;
+      // ไม่มีผลลัพธ์ -> ลองระบบค้นหาแบบเดิมอีกทาง
     }catch(e){
+      newApiErr = e;
       console.warn('Places API (New) ใช้ไม่ได้ เปลี่ยนไปใช้ Places API (Legacy)', e);
-      fetchPlaceSuggestions._newApiFailed = true;
+      // ถ้าถูกปฏิเสธสิทธิ์ (ไม่ได้เปิด API นี้) ไม่ต้องลองซ้ำทุกครั้ง; ถ้าแค่ช้า/เน็ตหลุด ครั้งหน้าลองใหม่ได้
+      if(/PERMISSION|DENIED|not been used|disabled|403/i.test(String(e && (e.message||e)))) fetchPlaceSuggestions._newApiFailed = true;
     }
   }
 
   const svc = new P.AutocompleteService();
   const req = { input:query, sessionToken:token, language:'th', componentRestrictions:{country:'th'} };
   if(bias) req.locationBias = { center:bias, radius:50000 };
-  const preds = await new Promise((resolve, reject)=>{
-    svc.getPlacePredictions(req, (res, status)=>{
-      if(status === P.PlacesServiceStatus.OK) resolve(res || []);
-      else if(status === P.PlacesServiceStatus.ZERO_RESULTS) resolve([]);
-      else reject(new Error('Google Places ปฏิเสธคำขอ: '+status));
-    });
-  });
+  let preds;
+  try{
+    preds = await withTimeout(new Promise((resolve, reject)=>{
+      svc.getPlacePredictions(req, (res, status)=>{
+        if(status === P.PlacesServiceStatus.OK) resolve(res || []);
+        else if(status === P.PlacesServiceStatus.ZERO_RESULTS) resolve([]);
+        else reject(new Error('Google Places ปฏิเสธคำขอ: '+status));
+      });
+    }), 8000, 'Google ตอบช้าเกินไป ลองใหม่อีกครั้ง');
+  }catch(e){
+    if(_gmapsAuthError) throw new Error(_gmapsAuthError);
+    if(newApiErr) console.warn('ทั้งสองระบบค้นหาล้มเหลว', newApiErr);
+    throw e;
+  }
+  if(!preds.length && _gmapsAuthError) throw new Error(_gmapsAuthError);
   return preds.map(pr=>({
     main: (pr.structured_formatting && pr.structured_formatting.main_text) || pr.description,
     sub: (pr.structured_formatting && pr.structured_formatting.secondary_text) || '',
@@ -1075,10 +1088,27 @@ function loadGoogleMapsJS(apiKey){
     const s = document.createElement('script');
     s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=${cbName}`;
     s.async = true;
-    s.onerror = ()=>reject(new Error('โหลด Google Maps JavaScript API ไม่สำเร็จ (เช็คว่าเปิดใช้ "Maps JavaScript API" ในโปรเจกต์แล้วหรือยัง)'));
+    s.onerror = ()=>{
+      s.remove();
+      _gmapsJsLoadPromise = null; // ให้ลองโหลดใหม่ได้ในครั้งถัดไป (เช่น เน็ตหลุดชั่วคราว)
+      reject(new Error('โหลด Google Maps ไม่สำเร็จ — เช็คอินเทอร์เน็ตแล้วลองใหม่'));
+    };
     document.head.appendChild(s);
   });
   return _gmapsJsLoadPromise;
+}
+// Google เรียกฟังก์ชันนี้เมื่อคีย์ถูกปฏิเสธ (เช่น จำกัดโดเมนไว้ไม่ตรงกับเว็บที่เปิดแอป / ยังไม่เปิด billing)
+let _gmapsAuthError = null;
+window.gm_authFailure = ()=>{
+  _gmapsAuthError = `Google ปฏิเสธ API key สำหรับเว็บนี้ (${location.origin}) — เช็ค Website restrictions ของคีย์ใน Google Cloud Console`;
+  console.error(_gmapsAuthError);
+};
+function withTimeout(promise, ms, msg){
+  let t;
+  return Promise.race([
+    promise.finally(()=>clearTimeout(t)),
+    new Promise((_, reject)=>{ t = setTimeout(()=>reject(new Error(msg)), ms); })
+  ]);
 }
 
 // PlacesService ต้องผูกกับ google.maps.Map instance (แม้ไม่ต้องแสดงแผนที่จริงก็ตาม) — ใช้ div ที่ซ่อนไว้
