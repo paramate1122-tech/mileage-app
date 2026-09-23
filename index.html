@@ -84,9 +84,21 @@
     flex:1; padding:7px 10px; border:none; border-radius:7px; background:transparent; color:var(--text);
     font-family:var(--sans); font-size:13px; font-weight:500; cursor:pointer; transition:background .2s, box-shadow .2s;
   }
-  .tab-btn.active{ background:var(--panel); box-shadow:0 3px 8px rgba(0,0,0,0.12), 0 3px 1px rgba(0,0,0,0.04); font-weight:600; }
-  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tab-btn.active{ background:#636366; } }
-  :root[data-theme="dark"] .tab-btn.active{ background:#636366; }
+  /* segmented control: แถบขาวเลื่อนไปมาแบบ iOS */
+  .tabbar{ position:relative; }
+  .tab-btn{ position:relative; z-index:1; }
+  .tab-btn.active{ font-weight:600; }
+  .tab-indicator{ position:absolute; top:2px; bottom:2px; left:2px; width:calc(50% - 3px); border-radius:7px;
+    background:var(--panel); box-shadow:0 3px 8px rgba(0,0,0,0.12), 0 3px 1px rgba(0,0,0,0.04);
+    transition:transform .32s cubic-bezier(.3,.8,.3,1), background-color .3s ease; }
+  .tabbar.on-history .tab-indicator{ transform:translateX(calc(100% + 2px)); }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tab-indicator{ background:#636366; } }
+  :root[data-theme="dark"] .tab-indicator{ background:#636366; }
+
+  /* เปลี่ยนหน้าแบบเลื่อน+จางเข้า */
+  @keyframes viewIn{ from{ opacity:0; transform:translateX(var(--dx, 0px)) translateY(var(--dy, 0px)); } to{ opacity:1; transform:none; } }
+  .view-in{ animation:viewIn .34s cubic-bezier(.2,.8,.2,1) both; }
+  @media (prefers-reduced-motion: reduce){ .view-in, .tab-indicator, dialog[open], dialog.closing{ animation:none !important; transition:none !important; } }
 
   .datebar{ display:flex; align-items:center; gap:8px; margin:4px 0 12px; }
   .day-nav{ width:36px; height:36px; border-radius:50%; border:none; background:var(--fill); color:var(--accent);
@@ -125,10 +137,12 @@
   .cal-day:disabled{ color:var(--muted); opacity:.35; cursor:default; }
   .cal-day .dot{ position:absolute; left:50%; bottom:5px; width:5px; height:5px; margin-left:-2.5px; border-radius:50%; background:var(--accent); }
   .cal-day.sel .dot{ background:#fff; }
-  .cal-foot{ display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding:0 4px; }
+  .cal-foot{ display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding:0 4px; min-height:20px; }
+  .cal-sel{ font-size:14px; font-weight:600; color:var(--text); }
+  .cal-actions{ display:flex; gap:10px; margin-top:12px; }
+  .cal-actions .btn{ flex:1; padding:12px; font-size:16px; }
   .cal-legend{ font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
   .cal-legend i{ width:6px; height:6px; border-radius:50%; background:var(--accent); display:inline-block; }
-  .cal-foot button{ border:none; background:none; color:var(--accent); font-size:17px; font-family:inherit; padding:8px 6px; cursor:pointer; }
 
   .past-banner{ display:none; align-items:center; gap:10px; margin:0 0 14px; padding:10px 12px 10px 14px;
     border-radius:12px; background:color-mix(in srgb, var(--accent) 12%, transparent); color:var(--text); font-size:14px; }
@@ -266,6 +280,14 @@
   dialog{ border:none; border-radius:14px; background:var(--panel); color:var(--text); padding:0; max-width:300px; width:80vw;
     box-shadow:0 20px 60px rgba(0,0,0,.25); }
   dialog::backdrop{ background:rgba(0,0,0,.35); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px); }
+  @keyframes dlgIn{ from{ opacity:0; transform:scale(.94); } to{ opacity:1; transform:none; } }
+  @keyframes dlgOut{ from{ opacity:1; transform:none; } to{ opacity:0; transform:scale(.97); } }
+  @keyframes fadeIn{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes fadeOut{ from{ opacity:1; } to{ opacity:0; } }
+  dialog[open]{ animation:dlgIn .24s cubic-bezier(.2,.9,.3,1.1); }
+  dialog[open]::backdrop{ animation:fadeIn .24s ease; }
+  dialog.closing{ animation:dlgOut .18s ease forwards; }
+  dialog.closing::backdrop{ animation:fadeOut .18s ease forwards; }
   .dlg-body{ padding:20px 18px 16px; text-align:center; }
   .dlg-body h3{ margin:0 0 6px; font-size:17px; font-weight:600; }
   .dlg-body p{ font-size:13px; color:var(--text); line-height:1.4; margin:0; }
@@ -306,7 +328,8 @@
     </label>
   </header>
 
-  <div class="tabbar">
+  <div class="tabbar" id="tabbar">
+    <span class="tab-indicator"></span>
     <button class="tab-btn active" id="tabBtnToday" data-tab="today">Home</button>
     <button class="tab-btn" id="tabBtnHistory" data-tab="history">History</button>
   </div>
@@ -444,7 +467,11 @@
     <div class="cal-grid" id="calGrid"></div>
     <div class="cal-foot">
       <span class="cal-legend"><i></i> Has entry</span>
-      <button id="calCancel">Cancel</button>
+      <span class="cal-sel" id="calSelText"></span>
+    </div>
+    <div class="cal-actions">
+      <button class="btn btn-ghost" id="calCancel">Cancel</button>
+      <button class="btn btn-primary" id="calConfirm">Confirm</button>
     </div>
   </div>
 </dialog>
@@ -573,21 +600,38 @@ function openToday(){
   currentDate = todayStr();
   showForm('today');
 }
+// ---------- smooth view changes ----------
+function setActiveTab(name){
+  document.getElementById('tabBtnToday').classList.toggle('active', name==='today');
+  document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
+  document.getElementById('tabbar').classList.toggle('on-history', name==='history');
+}
+// แสดง el แบบเลื่อน/จางเข้า (dx: + มาจากขวา, - มาจากซ้าย; dy: เลื่อนขึ้นเล็กน้อย)
+function animateIn(el, dx, dy){
+  el.classList.remove('view-in');
+  el.style.setProperty('--dx', (dx||0)+'px');
+  el.style.setProperty('--dy', (dy||0)+'px');
+  void el.offsetWidth; // restart animation
+  el.classList.add('view-in');
+}
 function showForm(activeTab){
+  const today = document.getElementById('tabToday');
+  const wasHidden = today.style.display === 'none';
   slotSearchOpen = null;
   document.getElementById('gpsLive').textContent = '';
   loadDayIntoForm();
-  document.getElementById('tabBtnToday').classList.toggle('active', activeTab==='today');
-  document.getElementById('tabBtnHistory').classList.toggle('active', activeTab==='history');
-  document.getElementById('tabToday').style.display = '';
+  setActiveTab(activeTab);
+  today.style.display = '';
   document.getElementById('tabHistory').style.display = 'none';
-  window.scrollTo({top:0, behavior:'smooth'});
+  window.scrollTo({top:0, behavior:'auto'});
+  animateIn(today, wasHidden ? -24 : 0, wasHidden ? 0 : 10);
 }
 document.getElementById('backHistoryBtn').addEventListener('click', ()=>openToday());
 // ในหน้าแก้วันย้อนหลัง: เลื่อนวันด้วย ‹ › หรือแตะวันที่เพื่อเปิดปฏิทิน
 function hopPastDay(ds){
   if(!ds || ds > todayStr() || ds === currentDate) return;
   const tab = document.getElementById('tabToday');
+  const dir = ds < currentDate ? -1 : 1;
   tab.classList.add('switching');
   setTimeout(()=>{
     currentDate = ds;
@@ -595,6 +639,7 @@ function hopPastDay(ds){
     document.getElementById('gpsLive').textContent = '';
     loadDayIntoForm();
     tab.classList.remove('switching');
+    animateIn(tab, dir*18, 0);
   }, 120);
 }
 document.getElementById('prevDayBtn').addEventListener('click', ()=>hopPastDay(addDays(currentDate, -1)));
@@ -602,7 +647,7 @@ document.getElementById('nextDayBtn').addEventListener('click', ()=>hopPastDay(a
 document.getElementById('datePill').addEventListener('click', ()=>openCalendar(currentDate, todayStr(), ds=>hopPastDay(ds)));
 document.getElementById('addPastBtn').addEventListener('click', ()=>{
   const max = addDays(todayStr(), -1);
-  openCalendar(max, max, ds=>openPastDay(ds));
+  openCalendar(null, max, ds=>openPastDay(ds));
 });
 
 // ---------- in-app calendar ----------
@@ -610,9 +655,27 @@ document.getElementById('addPastBtn').addEventListener('click', ()=>{
 const calState = { year:0, month:0, selected:null, max:null, onPick:null };
 function openCalendar(selected, max, onPick){
   const base = parseDate(selected || max);
-  Object.assign(calState, { year:base.getFullYear(), month:base.getMonth(), selected, max, onPick });
+  Object.assign(calState, { year:base.getFullYear(), month:base.getMonth(), selected, initial:selected, max, onPick });
   renderCalendar();
-  document.getElementById('calDlg').showModal();
+  const dlgEl = document.getElementById('calDlg');
+  dlgEl.classList.remove('closing');
+  dlgEl.showModal();
+}
+// ปิด dialog แบบจางออก แล้วค่อยทำงานต่อ
+function closeDialogSmooth(dlgEl){
+  return new Promise(resolve=>{
+    if(!dlgEl.open){ resolve(); return; }
+    dlgEl.classList.add('closing');
+    let done = false;
+    const finish = ()=>{ if(done) return; done = true; dlgEl.classList.remove('closing'); dlgEl.close(); resolve(); };
+    dlgEl.addEventListener('animationend', finish, {once:true});
+    setTimeout(finish, 260); // กันกรณีไม่มี animation
+  });
+}
+function updateCalFooter(){
+  const sel = calState.selected;
+  document.getElementById('calSelText').textContent = sel ? fmtDateLong(sel) : 'Select a day';
+  document.getElementById('calConfirm').disabled = !sel;
 }
 function renderCalendar(){
   const { year, month, selected, max } = calState;
@@ -636,12 +699,14 @@ function renderCalendar(){
   }
   const grid = document.getElementById('calGrid');
   grid.innerHTML = html;
+  // แตะวัน = เลือก (ไฮไลต์) เท่านั้น ต้องกด Confirm ถึงจะไป
   grid.querySelectorAll('[data-ds]').forEach(b=>b.addEventListener('click', ()=>{
-    const ds = b.dataset.ds;
-    const cb = calState.onPick;
-    document.getElementById('calDlg').close();
-    if(cb) cb(ds);
+    calState.selected = b.dataset.ds;
+    grid.querySelectorAll('.cal-day.sel').forEach(x=>x.classList.remove('sel'));
+    b.classList.add('sel');
+    updateCalFooter();
   }));
+  updateCalFooter();
 }
 document.getElementById('calPrev').addEventListener('click', ()=>{
   if(--calState.month < 0){ calState.month = 11; calState.year--; }
@@ -651,9 +716,16 @@ document.getElementById('calNext').addEventListener('click', ()=>{
   if(++calState.month > 11){ calState.month = 0; calState.year++; }
   renderCalendar();
 });
-document.getElementById('calCancel').addEventListener('click', ()=>document.getElementById('calDlg').close());
+document.getElementById('calCancel').addEventListener('click', ()=>closeDialogSmooth(document.getElementById('calDlg')));
+document.getElementById('calConfirm').addEventListener('click', async ()=>{
+  const ds = calState.selected, cb = calState.onPick;
+  if(!ds) return;
+  await closeDialogSmooth(document.getElementById('calDlg'));
+  if(cb) cb(ds);
+});
 // แตะพื้นหลังนอกปฏิทินเพื่อปิด
-document.getElementById('calDlg').addEventListener('click', e=>{ if(e.target.id === 'calDlg') e.target.close(); });
+document.getElementById('calDlg').addEventListener('click', e=>{ if(e.target.id === 'calDlg') closeDialogSmooth(e.target); });
+document.getElementById('calDlg').addEventListener('cancel', e=>{ e.preventDefault(); closeDialogSmooth(e.target); });
 
 // ถ้ามี draft ค้างจากวันก่อน (กรอกแล้วลืมกด Save) บันทึกเข้าวันนั้นให้อัตโนมัติ
 (function flushStaleDraft(){
@@ -1915,12 +1987,14 @@ document.getElementById('restoreFile').addEventListener('change', e=>{
 function switchTab(name){
   if(name === 'today'){ openToday(); return; }
   if(editingPast){ editingPast = false; currentDate = todayStr(); }
-  document.getElementById('tabBtnToday').classList.toggle('active', name==='today');
-  document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
-  document.getElementById('tabToday').style.display = name==='today' ? '' : 'none';
-  document.getElementById('tabHistory').style.display = name==='history' ? '' : 'none';
-  if(name==='history'){ renderHistory(); refreshMonthSelect(); }
-  window.scrollTo({top:0, behavior:'smooth'});
+  const hist = document.getElementById('tabHistory');
+  const wasHidden = hist.style.display === 'none';
+  setActiveTab('history');
+  document.getElementById('tabToday').style.display = 'none';
+  hist.style.display = '';
+  renderHistory(); refreshMonthSelect();
+  window.scrollTo({top:0, behavior:'auto'});
+  if(wasHidden) animateIn(hist, 24, 0);
 }
 document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
 document.getElementById('tabBtnHistory').addEventListener('click', ()=>switchTab('history'));
