@@ -5,11 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Mileage">
+<meta name="apple-mobile-web-app-title" content="Reimbursement">
+<meta name="application-name" content="Reimbursement">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f2f2f7">
-<title>Mileage Log</title>
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2312141a'/%3E%3Ctext x='50' y='62' font-size='48' text-anchor='middle' fill='%23ffb020' font-family='monospace'%3E0%3C/text%3E%3C/svg%3E">
+<title>Reimbursement</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2">
+<link rel="manifest" href="manifest.json?v=2">
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
@@ -98,20 +101,23 @@
   /* เปลี่ยนหน้าแบบเลื่อน+จางเข้า */
   @keyframes viewIn{ from{ opacity:0; transform:translateX(var(--dx, 0px)) translateY(var(--dy, 0px)); } to{ opacity:1; transform:none; } }
   .view-in{ animation:viewIn .6s cubic-bezier(.22,.8,.22,1) both; }
+  @keyframes viewOut{ from{ opacity:1; transform:none; } to{ opacity:0; transform:translateX(var(--dx, 0px)) scale(.985); } }
+  .view-out{ animation:viewOut .32s cubic-bezier(.4,0,.6,1) forwards; pointer-events:none; }
   /* กดปุ่มแล้วมีแสงขึ้นตรงจุดที่แตะแบบ iPhone แล้วค่อยๆ จางหายตอนปล่อย */
   .pressable{ position:relative; overflow:hidden; isolation:isolate; -webkit-user-select:none; user-select:none;
-    transition:transform .45s cubic-bezier(.25,.8,.25,1), opacity .3s ease, background-color .3s ease; }
+    transition:transform .45s cubic-bezier(.25,.8,.25,1), opacity .3s ease, background-color .3s ease, filter .6s ease; }
   .pressable::after{ content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:2;
-    background:radial-gradient(circle at var(--px,50%) var(--py,50%), var(--glow) 0%, transparent 70%);
+    background:radial-gradient(circle at var(--px,50%) var(--py,50%), var(--glow) 0%, transparent 75%), var(--glow-flat);
     opacity:0; transform:scale(.6); transition:opacity .6s ease, transform .6s cubic-bezier(.2,.8,.2,1); }
-  .pressable.pressing{ transform:scale(.96); transition:transform .12s ease; }
-  .pressable.pressing::after{ opacity:1; transform:scale(1.4); transition:opacity .08s ease, transform .5s cubic-bezier(.2,.8,.2,1); }
-  .pressable{ --glow:rgba(255,255,255,.55); }
+  .pressable.pressing{ transform:scale(.96); filter:brightness(1.18) saturate(1.1); transition:transform .12s ease, filter .08s ease; }
+  .pressable{ filter:none; }
+  .pressable.pressing::after{ opacity:1; transform:scale(1.6); transition:opacity .08s ease, transform .5s cubic-bezier(.2,.8,.2,1); }
+  .pressable{ --glow:rgba(255,255,255,.5); --glow-flat:rgba(255,255,255,.2); }
   .tab-btn.pressable.pressing{ transform:none; }
   .btn-ghost.pressable, .day-nav.pressable, .date-pill.pressable, .slot-icon-btn.pressable, .cal-nav button.pressable,
-  .cal-day.pressable, .icon-btn.pressable, .tab-btn.pressable, .photo-btn.pressable{ --glow:color-mix(in srgb, var(--accent) 28%, transparent); }
-  .icon-btn.del.pressable{ --glow:color-mix(in srgb, var(--red) 25%, transparent); }
-  .cal-day.sel.pressable{ --glow:rgba(255,255,255,.5); }
+  .cal-day.pressable, .icon-btn.pressable, .tab-btn.pressable, .photo-btn.pressable{ --glow:color-mix(in srgb, var(--accent) 45%, transparent); --glow-flat:color-mix(in srgb, var(--accent) 18%, transparent); }
+  .icon-btn.del.pressable{ --glow:color-mix(in srgb, var(--red) 40%, transparent); --glow-flat:color-mix(in srgb, var(--red) 15%, transparent); }
+  .cal-day.sel.pressable{ --glow:rgba(255,255,255,.5); --glow-flat:rgba(255,255,255,.2); }
   @media (prefers-reduced-motion: reduce){ .pressable, .pressable::after{ transition:none !important; } }
   @media (prefers-reduced-motion: reduce){ .view-in, .tab-indicator, dialog[open], dialog.closing{ animation:none !important; transition:none !important; } }
 
@@ -657,6 +663,25 @@ function animateIn(el, dx, dy){
   void el.offsetWidth; // restart animation
   el.classList.add('view-in');
 }
+// จางหน้าเดิมออกก่อน แล้วค่อยเลื่อนหน้าใหม่เข้ามา (จังหวะเดียวกับตอนเลือกวันจากปฏิทิน)
+let _viewSwapToken = 0;
+function swapView(outEl, inEl, dx, beforeShow){
+  const token = ++_viewSwapToken;
+  const show = ()=>{
+    if(token !== _viewSwapToken) return;
+    outEl.classList.remove('view-out');
+    outEl.style.display = 'none';
+    if(beforeShow) beforeShow();
+    inEl.style.display = '';
+    window.scrollTo({top:0, behavior:'auto'});
+    animateIn(inEl, dx, 0);
+  };
+  if(outEl.style.display === 'none' || matchMedia('(prefers-reduced-motion: reduce)').matches){ show(); return; }
+  outEl.classList.remove('view-in');
+  outEl.style.setProperty('--dx', (-dx) + 'px');
+  outEl.classList.add('view-out');
+  setTimeout(show, 320);
+}
 function showForm(activeTab){
   const today = document.getElementById('tabToday');
   const wasHidden = today.style.display === 'none';
@@ -664,10 +689,12 @@ function showForm(activeTab){
   document.getElementById('gpsLive').textContent = '';
   loadDayIntoForm();
   setActiveTab(activeTab);
-  today.style.display = '';
+  if(wasHidden){ swapView(document.getElementById('tabHistory'), today, -28); return; }
+  _viewSwapToken++; // ยกเลิกการสลับหน้าที่ค้างอยู่ (กดสลับแท็บเร็วๆ)
+  today.classList.remove('view-out');
   document.getElementById('tabHistory').style.display = 'none';
   window.scrollTo({top:0, behavior:'auto'});
-  animateIn(today, wasHidden ? -24 : 0, wasHidden ? 0 : 10);
+  animateIn(today, 0, 10);
 }
 document.getElementById('backHistoryBtn').addEventListener('click', ()=>openToday());
 // ในหน้าแก้วันย้อนหลัง: เลื่อนวันด้วย ‹ › หรือแตะวันที่เพื่อเปิดปฏิทิน
@@ -2033,11 +2060,13 @@ function switchTab(name){
   const hist = document.getElementById('tabHistory');
   const wasHidden = hist.style.display === 'none';
   setActiveTab('history');
-  document.getElementById('tabToday').style.display = 'none';
-  hist.style.display = '';
-  renderHistory(); refreshMonthSelect();
-  window.scrollTo({top:0, behavior:'auto'});
-  if(wasHidden) animateIn(hist, 24, 0);
+  if(!wasHidden){
+    _viewSwapToken++;
+    hist.classList.remove('view-out');
+    document.getElementById('tabToday').style.display = 'none';
+    return;
+  }
+  swapView(document.getElementById('tabToday'), hist, 28, ()=>{ renderHistory(); refreshMonthSelect(); });
 }
 document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
 document.getElementById('tabBtnHistory').addEventListener('click', ()=>switchTab('history'));
