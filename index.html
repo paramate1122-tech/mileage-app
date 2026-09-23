@@ -1663,9 +1663,10 @@ async function fetchGoogleDirections(pts){
 
 // ---------- ภาพเส้นทางสไตล์หน้าจอ Google Maps (แผงรายการจุดด้านซ้าย + แผนที่ด้านขวา) ----------
 // สร้างอัตโนมัติจาก Static Maps (พื้นแผนที่) + Directions (เส้นทาง/ระยะทาง/เวลา) แล้ววาดเส้นทาง หมุด และป้ายเวลาเองบน canvas
-const RIMG_W = 1280, RIMG_H = 720, RIMG_PANEL = 400;
-const RIMG_MAP_W = RIMG_W - RIMG_PANEL, RIMG_MAP_H = RIMG_H; // พิกเซลจริง (Static Maps scale=2 → ขอขนาดครึ่งหนึ่ง)
-const RIMG_FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif';
+// ขนาดและเลย์เอาต์เท่าหน้าจอ Google Maps บนคอมพิวเตอร์ (แถบเมนู 90px + แผงเส้นทาง 520px + แผนที่)
+const RIMG_W = 1890, RIMG_H = 1032, RIMG_PANEL = 610;
+const RIMG_MAP_W = RIMG_W - RIMG_PANEL, RIMG_MAP_H = RIMG_H; // พิกเซลจริง (Static Maps scale=2 → ขอขนาดครึ่งหนึ่ง: 640x516)
+const RIMG_FONT = '"Google Sans", Roboto, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
 
 // Web Mercator (หน่วย = พิกเซลที่ zoom 0, โลกกว้าง 256)
 function mercX(lng){ return (lng+180)/360*256; }
@@ -1680,7 +1681,7 @@ function invMercY(y){ const n = Math.PI - 2*Math.PI*y/256; return 180/Math.PI*Ma
 function fitMapView(coords, mapW, mapH){
   const xs = coords.map(c=>mercX(c.lng)), ys = coords.map(c=>mercY(c.lat));
   const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
-  const padX = 60, padTop = 50, padBottom = 30;
+  const padX = 70, padTop = 75, padBottom = 50; // เว้นที่ให้ช่องค้นหา/ปุ่มด้านบน และปุ่มซูม/Layers ด้านล่าง
   let zoom = 16;
   if(maxX-minX > 1e-9 || maxY-minY > 1e-9){
     for(zoom = 17; zoom > 1; zoom--){
@@ -1755,125 +1756,307 @@ function drawRedPin(ctx, x, y, s){ // (x,y) = ปลายหมุด, s = ส�
   ctx.fillStyle = '#7b0c0c'; ctx.fill();
 }
 
-function drawLeftPanel(ctx, pts, route, dateStr){
-  const P = RIMG_PANEL, H = RIMG_H;
-  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, P, H);
-  ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(P-1, 0, 1, H);
-  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-
-  // หัว: วันที่ + โหมดขับรถ
-  ctx.fillStyle = '#202124'; ctx.font = `600 24px ${RIMG_FONT}`;
-  ctx.fillText(dateStr ? fmtDateTH(dateStr) : 'Route', 28, 40);
-  roundRectPath(ctx, 28, 62, 118, 34, 17); ctx.fillStyle = '#c2e7ff'; ctx.fill();
-  ctx.fillStyle = '#001d35'; ctx.font = `600 17px ${RIMG_FONT}`;
-  ctx.fillText('🚗 Drive', 44, 79);
-  if(route){
-    ctx.fillStyle = '#3c4043'; ctx.font = `17px ${RIMG_FONT}`;
-    ctx.fillText(fmtDurationTH(route.durationS), 158, 79);
-  }
-
-  // รายการจุด
-  let y = 136;
-  const rowH = 60, boxX = 70, boxW = P - boxX - 24;
-  pts.forEach((p,i)=>{
-    const isLast = i === pts.length-1 && pts.length > 1;
-    if(isLast) drawRedPin(ctx, 38, y+14, 0.9);
-    else drawStopCircle(ctx, 38, y, 8);
-    if(i < pts.length-1){
-      ctx.fillStyle = '#5f6368';
-      for(let k=1;k<=3;k++){ ctx.beginPath(); ctx.arc(38, y + k*rowH/4, 2.2, 0, Math.PI*2); ctx.fill(); }
+// ---- Material icons (viewBox 24) ----
+const GI = {
+  car:'M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z',
+  moto:'M19.44 9.03L15.41 5H11v2h3.59l2 2H5c-2.8 0-5 2.2-5 5s2.2 5 5 5c2.46 0 4.45-1.69 4.9-4h1.65l2.77-2.77c-.21.54-.32 1.14-.32 1.77 0 2.8 2.2 5 5 5s5-2.2 5-5c0-2.65-1.97-4.77-4.56-4.97zM7.82 15C7.4 16.15 6.28 17 5 17c-1.63 0-3-1.37-3-3s1.37-3 3-3c1.28 0 2.4.85 2.82 2H5v2h2.82zM19 17c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z',
+  bus:'M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z',
+  walk:'M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7',
+  bike:'M15.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM5 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5zm5.8-10l2.4-2.4.8.8c1.3 1.3 3 2.1 5.1 2.1V9c-1.5 0-2.7-.6-3.6-1.5l-1.9-1.9c-.5-.4-1-.6-1.6-.6s-1.1.2-1.4.6L7.8 8.4c-.4.4-.6.9-.6 1.4 0 .6.2 1.1.6 1.4L11 14v5h2v-6.2l-2.2-2.3zM19 12c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5-2.2-5-5-5zm0 8.5c-1.9 0-3.5-1.6-3.5-3.5s1.6-3.5 3.5-3.5 3.5 1.6 3.5 3.5-1.6 3.5-3.5 3.5z',
+  best:'M21.71 11.29l-9-9c-.39-.39-1.02-.39-1.41 0l-9 9c-.39.39-.39 1.02 0 1.41l9 9c.39.39 1.02.39 1.41 0l9-9c.39-.38.39-1.01 0-1.41zM12 19.59L4.41 12 12 4.41 19.59 12 12 19.59zM14 10H9c-.55 0-1 .45-1 1v4h2v-3h4v2.5l3.5-3.5L14 7.5V10z',
+  close:'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+  menu:'M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z',
+  bookmark:'M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z',
+  history:'M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z',
+  phone:'M15.5 1h-8C6.12 1 5 2.12 5 3.5v17C5 21.88 6.12 23 7.5 23h8c1.38 0 2.5-1.12 2.5-2.5v-17C18 2.12 16.88 1 15.5 1zm-4 21c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4.5-4H7V4h9v14z',
+  link:'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z',
+  addCircle:'M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z',
+  placeOutline:'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zM7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 2.88-2.88 7.19-5 9.88C9.92 16.21 7 11.85 7 9zm5 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  warning:'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+  search:'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
+  gas:'M19.77 7.23l.01-.01-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33 0 1.38 1.12 2.5 2.5 2.5.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V9c0-.69-.28-1.32-.73-1.77zM12 10H6V5h6v5zm6 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z',
+  ev:'M19.77 7.23l.01-.01-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33 0 1.38 1.12 2.5 2.5 2.5.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V9c0-.69-.28-1.32-.73-1.77zM18 10c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zM8 18v-4.5H6L10 6v5h2l-4 7z',
+  camera:'M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z',
+  hotel:'M7 13c1.66 0 3-1.34 3-3S8.66 7 7 7s-3 1.34-3 3 1.34 3 3 3zm12-6h-8v7H3V5H1v15h2v-3h18v3h2v-9c0-2.21-1.79-4-4-4z',
+  layers:'M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z',
+  chevLeft:'M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z',
+  myLoc:'M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z',
+  person:'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'
+};
+const _giCache = {};
+function gIcon(ctx, name, cx, cy, size, color){
+  const p = _giCache[name] || (_giCache[name] = new Path2D(GI[name]));
+  ctx.save();
+  ctx.translate(cx - size/2, cy - size/2);
+  ctx.scale(size/24, size/24);
+  ctx.fillStyle = color;
+  ctx.fill(p);
+  ctx.restore();
+}
+function gText(ctx, text, x, y, size, color, weight, align){
+  ctx.font = `${weight||400} ${size}px ${RIMG_FONT}`;
+  ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y);
+  return ctx.measureText(text).width;
+}
+function wrapLines(ctx, text, maxW, maxLines){
+  const words = String(text).split(/(\s+)/);
+  const lines = []; let cur = '';
+  const push = ()=>{ lines.push(cur.trim()); cur = ''; };
+  for(const w of words){
+    const tryLine = cur + w;
+    if(ctx.measureText(tryLine.trim()).width <= maxW){ cur = tryLine; continue; }
+    if(cur.trim()) push();
+    // คำยาวเกินบรรทัด -> ตัดเป็นตัวอักษร
+    let piece = w.trim();
+    while(piece && ctx.measureText(piece).width > maxW){
+      let k = piece.length; while(k > 1 && ctx.measureText(piece.slice(0,k)).width > maxW) k--;
+      lines.push(piece.slice(0,k)); piece = piece.slice(k);
     }
-    roundRectPath(ctx, boxX, y-22, boxW, 44, 8);
-    ctx.lineWidth = 1.5; ctx.strokeStyle = '#80868b'; ctx.stroke();
-    const time = p.t ? new Date(p.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
-    ctx.font = `15px ${RIMG_FONT}`;
-    const timeW = time ? ctx.measureText(time).width + 12 : 0;
-    ctx.fillStyle = '#202124'; ctx.font = `18px ${RIMG_FONT}`;
-    ctx.fillText(fitText(ctx, p.label || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`, boxW - 24 - timeW), boxX+12, y);
-    if(time){
-      ctx.fillStyle = '#80868b'; ctx.font = `15px ${RIMG_FONT}`; ctx.textAlign = 'right';
-      ctx.fillText(time, boxX+boxW-12, y); ctx.textAlign = 'left';
-    }
-    y += rowH;
-  });
-
-  // สรุปเส้นทาง
-  y += 4;
-  ctx.fillStyle = '#e8eaed'; ctx.fillRect(0, y, P, 8);
-  if(!route) return;
-  y += 8;
-  ctx.fillStyle = '#0b57d0'; ctx.fillRect(0, y, 5, 150);
-  y += 38;
-  ctx.font = `24px ${RIMG_FONT}`; ctx.fillText('🚗', 24, y);
-  ctx.fillStyle = '#188038'; ctx.font = `600 22px ${RIMG_FONT}`; ctx.textAlign = 'right';
-  const durTxt = fmtDurationTH(route.durationS);
-  ctx.fillText(durTxt, P-24, y);
-  const durW = ctx.measureText(durTxt).width;
-  ctx.textAlign = 'left'; ctx.fillStyle = '#202124'; ctx.font = `600 20px ${RIMG_FONT}`;
-  ctx.fillText(fitText(ctx, route.summary ? `via ${route.summary}` : 'Driving route', P-24-durW-16-64), 64, y);
-  y += 30;
-  ctx.fillStyle = '#5f6368'; ctx.font = `17px ${RIMG_FONT}`;
-  ctx.fillText('Suggested by Google Maps', 64, y);
-  ctx.textAlign = 'right'; ctx.fillText(fmtKmTH(route.distanceM), P-24, y); ctx.textAlign = 'left';
-  if(route.warnings && route.warnings.length){
-    y += 30;
-    ctx.fillStyle = '#202124'; ctx.font = `16px ${RIMG_FONT}`;
-    ctx.fillText(fitText(ctx, '⚠️ ' + route.warnings[0], P-64-24), 64, y);
+    cur = piece;
+    if(lines.length >= maxLines) break;
   }
-  // แยกระยะแต่ละช่วง (ถ้ามีจุดแวะ)
-  if(route.legs && route.legs.length > 1){
-    y += 34;
-    ctx.font = `15px ${RIMG_FONT}`;
-    route.legs.forEach((l,k)=>{
-      if(y > H - 24) return;
-      ctx.fillStyle = '#5f6368';
-      ctx.fillText(`Leg ${k+1}→${k+2}`, 64, y);
-      ctx.textAlign = 'right'; ctx.fillStyle = '#3c4043';
-      ctx.fillText(`${fmtKmTH(l.distanceM)} • ${fmtDurationTH(l.durationS)}`, P-24, y);
-      ctx.textAlign = 'left';
-      y += 26;
-    });
-  }
+  if(cur.trim() && lines.length < maxLines) push();
+  if(lines.length > maxLines) lines.length = maxLines;
+  return lines;
+}
+function fmtDurShort(sec){ // 1h 12m แบบปุ่มโหมดเดินทางของ Google Maps
+  const m = Math.round(sec/60); if(m < 60) return `${m} min`;
+  const h = Math.floor(m/60), mm = m%60; return mm ? `${h}h ${mm}m` : `${h}h`;
+}
+function shadowBox(ctx, x, y, w, h, r, fill){
+  ctx.save();
+  ctx.shadowColor = 'rgba(60,64,67,0.3)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
+  roundRectPath(ctx, x, y, w, h, r); ctx.fillStyle = fill || '#fff'; ctx.fill();
+  ctx.restore();
 }
 
-// ป้ายเวลา/ระยะทางบนเส้นทาง (เหมือนกล่อง "🚗 1 hr 48 min / 110 km" ใน Google Maps)
-function drawRouteBubble(ctx, line, route){
+// ---- แผงซ้าย: แถบเมนู + แผงเส้นทาง (เลียนแบบหน้า Directions ของ Google Maps) ----
+function drawLeftPanel(ctx, pts, route){
+  const P = RIMG_PANEL, H = RIMG_H;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, P, H);
+  ctx.fillStyle = '#e8eaed'; ctx.fillRect(P-1, 0, 1, H);
+
+  // แถบเมนูซ้ายสุด
+  gIcon(ctx, 'menu', 45, 46, 26, '#444746');
+  gIcon(ctx, 'bookmark', 45, 116, 26, '#444746'); gText(ctx, 'Saved', 45, 151, 15, '#444746', 500, 'center');
+  gIcon(ctx, 'history', 45, 216, 26, '#444746'); gText(ctx, 'Recents', 45, 251, 15, '#444746', 500, 'center');
+  ctx.fillStyle = '#e1e3e1'; ctx.fillRect(16, 296, 58, 1);
+  if(route){
+    roundRectPath(ctx, 23, 325, 44, 44, 10); ctx.lineWidth = 2.2; ctx.strokeStyle = '#1f1f1f'; ctx.stroke();
+    ctx.fillStyle = '#d3e3fd'; roundRectPath(ctx, 25, 327, 40, 40, 8); ctx.fill();
+    gIcon(ctx, 'car', 45, 347, 22, '#041e49');
+    const first = (pts[0].label || '').trim();
+    ctx.font = `500 14px ${RIMG_FONT}`;
+    gText(ctx, fitText(ctx, first || 'Route', 70), 45, 383, 14, '#1f1f1f', 500, 'center');
+    gText(ctx, fmtDurShort(route.durationS), 45, 402, 14, '#1f1f1f', 400, 'center');
+  }
+  ctx.fillStyle = '#e1e3e1'; ctx.fillRect(16, 936, 58, 1);
+  gIcon(ctx, 'phone', 45, 968, 26, '#444746'); gText(ctx, 'Get app', 45, 998, 15, '#444746', 500, 'center');
+
+  // แผงเส้นทาง (x 90–600)
+  const X0 = 90;
+  // แถวโหมดเดินทาง
+  const modes = [['best',195],['car',255],['moto',315],['bus',375],['walk',435],['bike',495]];
+  modes.forEach(([ic, x])=>{
+    if(ic === 'car'){ roundRectPath(ctx, x-30, 44, 60, 40, 20); ctx.fillStyle = '#c2e7ff'; ctx.fill(); }
+    gIcon(ctx, ic, x, 64, 26, ic === 'best' || ic === 'bike' ? '#c4c7c5' : (ic === 'car' ? '#001d35' : '#1f1f1f'));
+  });
+  if(route) gText(ctx, fmtDurShort(route.durationS), 255, 96, 14, '#1f1f1f', 500, 'center');
+  gText(ctx, '—', 195, 96, 12, '#c4c7c5', 400, 'center'); gText(ctx, '—', 495, 96, 12, '#c4c7c5', 400, 'center');
+  gIcon(ctx, 'close', 555, 64, 28, '#1f1f1f');
+  roundRectPath(ctx, 165, 105, 338, 5, 2.5); ctx.fillStyle = '#e1e3e1'; ctx.fill();
+  roundRectPath(ctx, 165, 105, 338, 5, 2.5); ctx.fillStyle = '#444746'; ctx.globalAlpha = .55; ctx.fill(); ctx.globalAlpha = 1;
+
+  // รายการจุด
+  const rowH = 60; let y = 147;
+  const boxX = 170, boxW = 350, boxH = 50;
+  pts.forEach((p, i)=>{
+    const isLast = i === pts.length-1 && pts.length > 1;
+    if(isLast) gIcon(ctx, 'placeOutline', 135, y, 24, '#ea4335');
+    else { ctx.beginPath(); ctx.arc(135, y, 7.5, 0, Math.PI*2); ctx.lineWidth = 2; ctx.strokeStyle = '#1f1f1f'; ctx.stroke(); }
+    if(i < pts.length-1){
+      ctx.fillStyle = '#1f1f1f';
+      [20, 30, 40].forEach(dy=>{ ctx.beginPath(); ctx.arc(135, y+dy, 1.6, 0, Math.PI*2); ctx.fill(); });
+    }
+    roundRectPath(ctx, boxX, y-boxH/2, boxW, boxH, 8);
+    ctx.lineWidth = 1; ctx.strokeStyle = '#747775'; ctx.stroke();
+    // ข้อความยาวเกินกล่อง -> จางหายด้านขวาแบบช่องกรอกของ Google
+    ctx.save(); roundRectPath(ctx, boxX+1, y-boxH/2+1, boxW-2, boxH-2, 7); ctx.clip();
+    const label = p.label || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+    const tw = gText(ctx, label, boxX+10, y+1, 18, '#1f1f1f', 400);
+    if(tw > boxW - 20){
+      const g = ctx.createLinearGradient(boxX+boxW-60, 0, boxX+boxW-4, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, '#fff');
+      ctx.fillStyle = g; ctx.fillRect(boxX+boxW-60, y-boxH/2, 60, boxH);
+    }
+    ctx.restore();
+    y += rowH;
+  });
+  // Add destination / Options
+  gIcon(ctx, 'addCircle', 135, y, 28, '#1f1f1f');
+  gText(ctx, 'Add destination', 180, y, 18, '#444746', 400);
+  y += 66;
+  gText(ctx, 'Options', 567, y, 18, '#0b57d0', 500, 'right');
+  y += 36;
+  ctx.fillStyle = '#e8eaed'; ctx.fillRect(X0, y, P-X0-10, 9);
+  y += 9 + 32;
+  gIcon(ctx, 'phone', 137, y, 20, '#0b57d0');
+  gText(ctx, 'Send directions to iPhone', 158, y, 17, '#0b57d0', 500);
+  gIcon(ctx, 'link', 468, y, 22, '#0b57d0');
+  gText(ctx, 'Copy link', 489, y, 17, '#0b57d0', 500);
+  y += 34;
+  ctx.fillStyle = '#e8eaed'; ctx.fillRect(X0, y, P-X0-10, 1);
+
+  if(!route){ return; }
+  // การ์ดเส้นทางที่เลือก
+  const cardTop = y + 1;
+  let cy = cardTop + 36;
+  gIcon(ctx, 'car', 135, cy, 26, '#1f1f1f');
+  gText(ctx, fmtDurationTH(route.durationS), 570, cy, 20, '#188038', 500, 'right');
+  ctx.font = `500 20px ${RIMG_FONT}`;
+  const via = route.summary ? `via ${route.summary}` : 'Driving route';
+  const lines = wrapLines(ctx, via, 280, 4);
+  lines.forEach((ln, k)=>gText(ctx, ln, 180, cy + k*27, 20, '#1f1f1f', 500));
+  gText(ctx, fmtKmTH(route.distanceM), 570, cy + 30, 17, '#444746', 400, 'right');
+  cy += Math.max(2, lines.length) * 27 + 8;
+  if(route.warnings && route.warnings.length){
+    gIcon(ctx, 'warning', 191, cy, 20, '#b06000');
+    ctx.font = `400 18px ${RIMG_FONT}`;
+    gText(ctx, fitText(ctx, route.warnings[0], 360), 207, cy, 18, '#1f1f1f', 400);
+    cy += 42;
+  } else cy += 10;
+  gText(ctx, 'Details', 183, cy, 18, '#0b57d0', 500);
+  gText(ctx, 'Preview', 270, cy, 18, '#0b57d0', 500);
+  cy += 34;
+  ctx.fillStyle = '#0b57d0'; ctx.fillRect(X0, cardTop, 6, cy - cardTop);
+  ctx.fillStyle = '#e8eaed'; ctx.fillRect(X0, cy, P-X0-10, 9);
+}
+
+// ---- ปุ่ม/แถบต่างๆ บนแผนที่ (ช่องค้นหา ชิป ปุ่มซูม Layers มาตราส่วน) ----
+function drawMapChrome(ctx, view, layersThumb){
+  const MX = RIMG_PANEL, W = RIMG_W, H = RIMG_H;
+  // ปุ่มพับแผง
+  shadowBox(ctx, MX-8, 490, 38, 56, 8, '#fff');
+  gIcon(ctx, 'chevLeft', MX+14, 518, 24, '#444746');
+  // ช่องค้นหา + ชิป
+  shadowBox(ctx, 637, 26, 324, 42, 21);
+  gIcon(ctx, 'search', 659, 47, 24, '#1f1f1f');
+  gText(ctx, 'Search along the route…', 677, 47, 17, '#5e5e5e', 400);
+  let cx = 970;
+  [['gas','Gas'],['ev','EV charging'],['camera','Things to do'],['hotel','Hotels']].forEach(([ic, t])=>{
+    ctx.font = `500 17px ${RIMG_FONT}`;
+    const w = ctx.measureText(t).width + 56;
+    shadowBox(ctx, cx, 26, w, 42, 21);
+    gIcon(ctx, ic, cx+22, 47, 20, '#1f1f1f');
+    gText(ctx, t, cx+38, 47, 17, '#1f1f1f', 500);
+    cx += w + 10;
+  });
+  // ขวาบน: ปุ่มแอป + รูปโปรไฟล์ (ไอคอนทั่วไป)
+  const R = W - 43; // กึ่งกลางคอลัมน์ปุ่มด้านขวา
+  ctx.fillStyle = '#444746';
+  for(let r=0;r<3;r++) for(let c=0;c<3;c++){ ctx.beginPath(); ctx.arc(R - 73 + c*7, 33 + r*7, 2.3, 0, Math.PI*2); ctx.fill(); }
+  ctx.beginPath(); ctx.arc(R - 4, 40, 20, 0, Math.PI*2); ctx.fillStyle = '#e8eaed'; ctx.fill();
+  gIcon(ctx, 'person', R - 4, 41, 28, '#80868b');
+  // ขวาล่าง: ตำแหน่งฉัน, ซูม, pegman
+  shadowBox(ctx, R-18, 856, 36, 36, 18);
+  gIcon(ctx, 'myLoc', R, 874, 22, '#444746');
+  shadowBox(ctx, R-18, 895, 36, 72, 8);
+  ctx.fillStyle = '#e8eaed'; ctx.fillRect(R-12, 931, 24, 1);
+  ctx.fillStyle = '#444746'; ctx.fillRect(R-8, 911, 16, 2.6); ctx.fillRect(R-1.3, 904.3, 2.6, 16);
+  ctx.fillRect(R-8, 947, 16, 2.6);
+  shadowBox(ctx, R-18, 973, 36, 36, 8);
+  ctx.fillStyle = '#fbbc04'; ctx.beginPath(); ctx.arc(R, 983, 4, 0, Math.PI*2); ctx.fill();
+  roundRectPath(ctx, R-5.5, 988, 11, 13, 4); ctx.fill();
+  // ซ้ายล่าง: Layers (ภาพดาวเทียมเล็กจริงจาก Google ถ้าโหลดได้)
+  shadowBox(ctx, 641, 893, 96, 96, 10, '#5f6b5a');
+  if(layersThumb){ ctx.save(); roundRectPath(ctx, 643, 895, 92, 92, 8); ctx.clip(); ctx.drawImage(layersThumb, 643, 895, 92, 92); ctx.restore(); }
+  const g = ctx.createLinearGradient(0, 950, 0, 987); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.55)');
+  ctx.save(); roundRectPath(ctx, 643, 895, 92, 92, 8); ctx.clip(); ctx.fillStyle = g; ctx.fillRect(643, 950, 92, 37); ctx.restore();
+  ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; roundRectPath(ctx, 642, 894, 94, 94, 9); ctx.stroke();
+  gIcon(ctx, 'layers', 663, 972, 18, '#fff');
+  gText(ctx, 'Layers', 676, 972, 14, '#fff', 500);
+  // แถบล่าง: ข้อความลิขสิทธิ์ + มาตราส่วนจริงตามระดับซูม
+  const lat = invMercY(view.cy);
+  const mPerPx = 156543.03392 * Math.cos(lat*Math.PI/180) / Math.pow(2, view.zoom) / 2;
+  const nice = [50,100,200,500,1000,2000,5000,10000,20000,50000,100000,200000];
+  let dist = nice[0]; for(const n of nice){ if(n / mPerPx <= 110) dist = n; }
+  const barW = dist / mPerPx;
+  const distTxt = dist >= 1000 ? `${dist/1000} km` : `${dist} m`;
+  const items = [`Map data ©${new Date().getFullYear()} Google`, 'Thailand', 'Terms', 'Privacy', 'Send Product Feedback'];
+  ctx.font = `400 12px ${RIMG_FONT}`;
+  let totalW = items.reduce((a,t)=>a + ctx.measureText(t).width + 22, 0) + ctx.measureText(distTxt).width + 8 + barW + 20;
+  const fx = W - totalW;
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(fx - 8, H - 18, totalW + 8, 18);
+  let tx = fx;
+  items.forEach(t=>{ tx += gText(ctx, t, tx, H - 9, 12, '#3c4043', 400) + 22; });
+  tx += gText(ctx, distTxt, tx, H - 9, 12, '#3c4043', 400) + 8;
+  ctx.fillStyle = '#3c4043';
+  ctx.fillRect(tx, H - 7, barW, 2); ctx.fillRect(tx, H - 12, 1.5, 7); ctx.fillRect(tx + barW - 1.5, H - 12, 1.5, 7);
+}
+
+// ป้ายชื่อจุดแวะบนแผนที่ (ตัวหนา มีขอบขาว)
+function drawStopLabel(ctx, text, x, y){
+  ctx.font = `500 17px ${RIMG_FONT}`;
+  const t = fitText(ctx, text, 190);
+  const w = ctx.measureText(t).width;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+  ctx.strokeText(t, x, y); ctx.fillStyle = '#1f1f1f'; ctx.fillText(t, x, y);
+  return { x: x - 24, y: y - 14, w: w + 30, h: 28 };
+}
+
+// ป้ายเวลา/ระยะทางบนเส้นทาง (กล่อง "🚗 1 hr 13 min / 70.4 km")
+function drawRouteBubble(ctx, line, route, avoid){
   if(!route || line.length < 2) return;
   let total = 0; const seg = [];
   for(let k=1;k<line.length;k++){ const d = Math.hypot(line[k].x-line[k-1].x, line[k].y-line[k-1].y); seg.push(d); total += d; }
-  let target = total*0.55, k = 0;
-  while(k < seg.length-1 && target > seg[k]){ target -= seg[k]; k++; }
-  const f = seg[k] ? target/seg[k] : 0;
-  const ax = line[k].x + (line[k+1].x-line[k].x)*f, ay = line[k].y + (line[k+1].y-line[k].y)*f;
-
+  const pointAt = frac=>{
+    let target = total*frac, k = 0;
+    while(k < seg.length-1 && target > seg[k]){ target -= seg[k]; k++; }
+    const f = seg[k] ? target/seg[k] : 0;
+    return { x: line[k].x + (line[k+1].x-line[k].x)*f, y: line[k].y + (line[k+1].y-line[k].y)*f };
+  };
   const t1 = fmtDurationTH(route.durationS), t2 = fmtKmTH(route.distanceM);
-  ctx.font = `600 22px ${RIMG_FONT}`; const w1 = ctx.measureText(t1).width + 40;
-  ctx.font = `16px ${RIMG_FONT}`; const w2 = ctx.measureText(t2).width;
-  const bw = Math.max(w1, w2) + 28, bh = 64;
-  const left = RIMG_PANEL + 8, right = RIMG_W - 8;
-  let bx = ax + 18, by = ay - bh/2, onRight = true;
-  if(bx + bw > right){ bx = ax - 18 - bw; onRight = false; }
-  bx = Math.max(left, bx);
-  by = Math.max(10, Math.min(RIMG_H - bh - 40, by));
-
+  ctx.font = `500 17px ${RIMG_FONT}`; const w1 = ctx.measureText(t1).width + 34;
+  ctx.font = `400 13px ${RIMG_FONT}`; const w2 = ctx.measureText(t2).width;
+  const bw = Math.max(w1, w2) + 20, bh = 46;
+  const overlaps = (x, y)=> (avoid||[]).some(r => x < r.x + r.w && x + bw > r.x && y < r.y + r.h && y + bh > r.y);
+  const place = (ax, ay, side)=>{
+    let bx = side > 0 ? ax + 4 : ax - bw - 4, by = ay - bh - 4;
+    bx = Math.max(RIMG_PANEL + 40, Math.min(RIMG_W - 70 - bw, bx)); by = Math.max(80, Math.min(RIMG_H - bh - 60, by));
+    return { bx, by };
+  };
+  // หาจุดบนเส้นทางที่วางกล่องแล้วไม่ทับชื่อสถานที่/หมุด
+  let pos = null;
+  for(const frac of [0.55, 0.45, 0.65, 0.35, 0.75, 0.25, 0.85, 0.15]){
+    const a = pointAt(frac);
+    for(const side of [1, -1]){ const c = place(a.x, a.y, side); if(!overlaps(c.bx, c.by)){ pos = c; break; } }
+    if(pos) break;
+  }
+  if(!pos){ const a = pointAt(0.55); pos = place(a.x, a.y, 1); }
+  const { bx, by } = pos;
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
-  ctx.beginPath(); // หางชี้ไปที่เส้นทาง
-  const tailY = Math.max(by+14, Math.min(by+bh-14, ay));
-  if(onRight){ ctx.moveTo(bx+2, tailY-10); ctx.lineTo(ax, ay); ctx.lineTo(bx+2, tailY+10); }
-  else { ctx.moveTo(bx+bw-2, tailY-10); ctx.lineTo(ax, ay); ctx.lineTo(bx+bw-2, tailY+10); }
-  ctx.closePath(); ctx.fillStyle = '#fff'; ctx.fill();
-  roundRectPath(ctx, bx, by, bw, bh, 6); ctx.fill();
+  ctx.shadowColor = 'rgba(60,64,67,.35)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
+  ctx.fillStyle = '#fff'; ctx.fillRect(bx, by, bw, bh);
   ctx.restore();
-  roundRectPath(ctx, bx, by, bw, bh, 6); ctx.lineWidth = 1; ctx.strokeStyle = '#bdc1c6'; ctx.stroke();
-
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.font = `20px ${RIMG_FONT}`; ctx.fillStyle = '#202124'; ctx.fillText('🚗', bx+12, by+22);
-  ctx.font = `600 22px ${RIMG_FONT}`; ctx.fillText(t1, bx+44, by+22);
-  ctx.font = `16px ${RIMG_FONT}`; ctx.fillStyle = '#5f6368'; ctx.fillText(t2, bx+14, by+47);
+  ctx.lineWidth = 1; ctx.strokeStyle = '#dadce0'; ctx.strokeRect(bx+.5, by+.5, bw-1, bh-1);
+  gIcon(ctx, 'car', bx+17, by+15, 20, '#1f1f1f');
+  gText(ctx, t1, bx+31, by+15, 17, '#1f1f1f', 500);
+  gText(ctx, t2, bx+10, by+34, 13, '#5e5e5e', 400);
 }
 
-// ประกอบภาพเส้นทางทั้งหมด — ใช้ Google Maps เท่านั้น (ไม่ fallback) ถ้าล้มเหลวจะ throw ออกไป
+async function fetchLayersThumb(view, apiKey){
+  try{
+    const params = new URLSearchParams({ center:`${invMercY(view.cy).toFixed(6)},${invMercX(view.cx).toFixed(6)}`,
+      zoom:String(Math.max(1, view.zoom-2)), size:'92x92', scale:'1', maptype:'satellite', format:'jpg', key:apiKey });
+    const res = await fetch(`https://maps.googleapis.com/maps/api/staticmap?${params}`);
+    if(!res.ok || !(res.headers.get('content-type')||'').startsWith('image')) return null;
+    const blob = await res.blob();
+    return await new Promise(r=>{ const im = new Image(); im.onload=()=>r(im); im.onerror=()=>r(null); im.src = URL.createObjectURL(blob); });
+  }catch(e){ return null; }
+}
+
 async function buildRouteMapImage(pts, statusCb, dateStr){
   if(!pts.length) return null;
   const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
@@ -1890,7 +2073,7 @@ async function buildRouteMapImage(pts, statusCb, dateStr){
   const view = fitMapView(linePts.concat(pts), RIMG_MAP_W/2, RIMG_MAP_H/2);
 
   if(statusCb) statusCb('Loading map…');
-  const base = await fetchStaticMapBase(view, apiKey);
+  const [base, layersThumb] = await Promise.all([fetchStaticMapBase(view, apiKey), fetchLayersThumb(view, apiKey)]);
 
   const canvas = document.createElement('canvas');
   canvas.width = RIMG_W; canvas.height = RIMG_H;
@@ -1913,13 +2096,22 @@ async function buildRouteMapImage(pts, statusCb, dateStr){
     ctx.lineWidth = 8; ctx.strokeStyle = '#4b3cff'; ctx.stroke();
   }
   const sp = pts.map(proj);
+  const last = sp[sp.length-1];
   sp.forEach((q,i)=>{ if(!(i === sp.length-1 && sp.length > 1)) drawStopCircle(ctx, q.x, q.y, 8); });
-  if(sp.length > 1) drawRedPin(ctx, sp[sp.length-1].x, sp[sp.length-1].y, 1.25);
-  else drawRedPin(ctx, sp[0].x, sp[0].y, 1.25);
-  drawRouteBubble(ctx, line, route);
+  // ชื่อสถานที่ข้างจุดแวะ (ไม่ใส่ถ้าทับหมุดปลายทาง เช่น จุดเริ่ม = จุดจบ)
+  const avoid = [{ x: last.x - 20, y: last.y - 44, w: 40, h: 48 }]; // หมุดปลายทาง
+  sp.forEach((q,i)=>{
+    if(i === sp.length-1 && sp.length > 1) return;
+    avoid.push({ x: q.x - 12, y: q.y - 12, w: 24, h: 24 });
+    if(sp.length > 1 && Math.hypot(q.x-last.x, q.y-last.y) < 30) return;
+    avoid.push(drawStopLabel(ctx, pts[i].label || '', q.x + 14, q.y));
+  });
+  drawRedPin(ctx, last.x, last.y, 1.25);
+  drawRouteBubble(ctx, line, route, avoid);
   ctx.restore();
 
-  drawLeftPanel(ctx, pts, route, dateStr);
+  drawMapChrome(ctx, view, layersThumb);
+  drawLeftPanel(ctx, pts, route);
   return { dataUrl: canvas.toDataURL('image/png'), route };
 }
 
@@ -1997,7 +2189,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
           d
         );
         if(mapResult && mapResult.dataUrl){
-          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapResult.dataUrl), transformation:{width:620,height:349} }) ], spacing:{before:150} }));
+          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapResult.dataUrl), transformation:{width:620,height:339} }) ], spacing:{before:150} }));
         }
       }
     }
