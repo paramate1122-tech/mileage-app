@@ -219,9 +219,9 @@
             <div class="photo-btn" id="startPhotoBtn">
               <span class="plus" id="startPlus">＋</span>
               <img id="startImg" style="display:none">
-              <input type="file" accept="image/*" capture="environment" id="startFile">
+              <input type="file" accept="image/*" id="startFile">
             </div>
-            <div class="photo-caption">ถ่ายไมล์</div>
+            <div class="photo-caption">ถ่าย / เลือกรูป</div>
           </div>
         </div>
       </div>
@@ -239,9 +239,9 @@
             <div class="photo-btn" id="endPhotoBtn">
               <span class="plus" id="endPlus">＋</span>
               <img id="endImg" style="display:none">
-              <input type="file" accept="image/*" capture="environment" id="endFile">
+              <input type="file" accept="image/*" id="endFile">
             </div>
-            <div class="photo-caption">ถ่ายไมล์</div>
+            <div class="photo-caption">ถ่าย / เลือกรูป</div>
           </div>
         </div>
       </div>
@@ -290,24 +290,9 @@
         </button>
       </div>
     </div>
-    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ไฟล์ Word จะมีเฉพาะ วันที่ / รูปไมล์เริ่ม-จบวัน / ภาพเส้นทางแบบหน้าจอ Google Maps (รายการจุด + ระยะทาง/เวลา + แผนที่) ของทุกวันในเดือนนั้น (วันละ 1 หน้า) สร้างให้อัตโนมัติ ไม่ต้องแคปหน้าจอเอง. แผนที่ต้องใช้ Google Maps API key เท่านั้น (ไม่ fallback เป็น OpenStreetMap) ถ้าคีย์ใช้ไม่ได้จะขึ้น error ทันทีและหยุดสร้างไฟล์. ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
+    <div class="hint">ไฟล์ Excel จะมีคอลัมน์: วันที่ / ไมล์เริ่มต้น / ไมล์สิ้นสุด / ระยะทาง (กม.) / ค่าเสื่อม (บาท). ไฟล์ Word จะมีเฉพาะ วันที่ / รูปไมล์เริ่ม-จบวัน / ภาพเส้นทางแบบหน้าจอ Google Maps (รายการจุด + ระยะทาง/เวลา + แผนที่) ของทุกวันในเดือนนั้น (วันละ 1 หน้า) สร้างให้อัตโนมัติ ไม่ต้องแคปหน้าจอเอง. ข้อมูลทั้งหมดเก็บอยู่ในเครื่องนี้เท่านั้น — กดสำรองข้อมูลเป็นระยะเพื่อป้องกันข้อมูลหาย</div>
   </div>
 
-  <!-- GOOGLE MAPS API KEY -->
-  <div class="card">
-    <h2>Google Maps API key (สำหรับแผนที่/เส้นทาง/ชื่อสถานที่ในรายงาน)</h2>
-    <div class="odo-input-col">
-      <label for="gmapsKeyInput">ใส่ API key แล้วกดบันทึก — จำเป็นต้องมีคีย์ก่อนถึงจะ export Word ได้ (ไม่มี fallback เป็น OpenStreetMap แล้ว) ต้องเปิดใช้งาน 4 API นี้ในโปรเจกต์: Maps Static API, Maps JavaScript API, Directions API, Places API (Legacy)</label>
-      <input type="text" id="gmapsKeyInput" placeholder="AIzaSy..." style="background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--text); font-family:var(--mono); font-size:13px; padding:10px;">
-    </div>
-    <div class="btn-row" style="margin-top:10px;">
-      <button class="btn btn-ghost btn-sm" id="gmapsKeySaveBtn" style="flex:1;">บันทึกคีย์</button>
-      <button class="btn btn-ghost btn-sm" id="gmapsKeyTestBtn" style="flex:1;">ทดสอบคีย์</button>
-      <button class="btn btn-ghost btn-sm" id="gmapsKeyClearBtn" style="flex:1;">ล้างคีย์</button>
-    </div>
-    <div class="hint" id="gmapsKeyStatus"></div>
-    <img id="gmapsKeyTestImg" style="display:none; width:100%; border-radius:10px; margin-top:10px;">
-  </div>
   </div>
 
 
@@ -521,7 +506,7 @@ let _acSessionToken = null;
 // คืนรายการ {main, sub, resolve()} — ลองใช้ Places API (New) ก่อน ถ้าโปรเจกต์ไม่ได้เปิดไว้ค่อยใช้ Places API (Legacy)
 async function fetchPlaceSuggestions(query){
   const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
-  if(!apiKey) throw new Error('ยังไม่ได้ตั้งค่า Google Maps API key (ดูในแท็บประวัติ)');
+  if(!apiKey) throw new Error('ระบบแผนที่ยังไม่พร้อมใช้งาน');
   await loadGoogleMapsJS(apiKey);
   const P = google.maps.places;
   if(!_acSessionToken) _acSessionToken = new P.AutocompleteSessionToken();
@@ -1380,7 +1365,7 @@ async function buildRouteMapImage(pts, statusCb, dateStr){
   if(!pts.length) return null;
   const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
   if(!apiKey){
-    throw new Error('ยังไม่ได้ตั้งค่า Google Maps API key — ไปที่การ์ด "Google Maps API key" แล้วใส่คีย์ก่อน export');
+    throw new Error('ระบบแผนที่ยังไม่พร้อมใช้งาน');
   }
 
   let route = null;
@@ -1519,64 +1504,12 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   }
 });
 
-// ---------- Google Maps API key ----------
-(function initGmapsKeyUI(){
-  // ตั้งค่าคีย์เริ่มต้นให้อัตโนมัติในการเปิดใช้ครั้งแรก (ผู้ใช้ให้คีย์นี้ไว้ตอนตั้งค่าแอป) — เปลี่ยน/ลบได้จากช่องด้านล่างเสมอ
+// ---------- Google Maps API key (ตั้งค่าไว้ในโค้ด ไม่แสดงบนหน้าจอ) ----------
+(function initGmapsKey(){
+  // ตั้งค่าคีย์ให้อัตโนมัติ — ควรจำกัดคีย์ใน Google Cloud Console (HTTP referrer + เฉพาะ API ที่ใช้) เพราะคีย์ฝั่งเบราว์เซอร์มองเห็นได้จาก source เสมอ
   if(localStorage.getItem(GMAPS_KEY_STORAGE) === null){
     localStorage.setItem(GMAPS_KEY_STORAGE, 'AIzaSyDgJHTT1OjgQJatQbNtGFtEDnk97n-DFCE');
   }
-  const input = document.getElementById('gmapsKeyInput');
-  const status = document.getElementById('gmapsKeyStatus');
-  const maskKey = k => k.length>10 ? `…${k.slice(-6)}` : k;
-  const refreshStatus = ()=>{
-    const cur = localStorage.getItem(GMAPS_KEY_STORAGE);
-    status.textContent = cur
-      ? `บันทึกคีย์ไว้แล้ว (${maskKey(cur)}) — รายงาน Word จะใช้แผนที่จาก Google Maps`
-      : 'ยังไม่ได้ตั้งค่าคีย์ — รายงาน Word จะใช้แผนที่ OpenStreetMap แทน';
-  };
-  const saved = localStorage.getItem(GMAPS_KEY_STORAGE);
-  if(saved) input.value = saved;
-  refreshStatus();
-  document.getElementById('gmapsKeySaveBtn').addEventListener('click', ()=>{
-    const v = input.value.trim();
-    if(!v){ status.textContent = 'กรุณาใส่ API key ก่อนกดบันทึก'; return; }
-    localStorage.setItem(GMAPS_KEY_STORAGE, v);
-    refreshStatus();
-  });
-  document.getElementById('gmapsKeyClearBtn').addEventListener('click', ()=>{
-    localStorage.removeItem(GMAPS_KEY_STORAGE);
-    input.value = '';
-    refreshStatus();
-  });
-  document.getElementById('gmapsKeyTestBtn').addEventListener('click', async ()=>{
-    const v = input.value.trim();
-    const testImg = document.getElementById('gmapsKeyTestImg');
-    testImg.style.display = 'none';
-    if(!v){ status.textContent = 'กรุณาใส่ API key ก่อนกดทดสอบ'; return; }
-    status.textContent = 'กำลังทดสอบคีย์…';
-    try{
-      const params = new URLSearchParams({
-        center:'13.7563,100.5018', zoom:'12', size:'400x250', scale:'2',
-        maptype:'roadmap', format:'png', key:v
-      });
-      const url = `https://maps.googleapis.com/maps/api/staticmap?${params.toString()}`;
-      const res = await fetch(url);
-      const ct = res.headers.get('content-type') || '';
-      if(!res.ok || !ct.startsWith('image')){
-        let detail = '';
-        try{ detail = await res.text(); }catch(e){}
-        throw new Error(`HTTP ${res.status}: ${(detail||ct).slice(0,400)}`);
-      }
-      const blob = await res.blob();
-      testImg.src = URL.createObjectURL(blob);
-      testImg.style.display = 'block';
-      // ทดสอบผ่าน -> บันทึกคีย์นี้ให้อัตโนมัติ เพื่อไม่ให้ export ใช้คีย์เก่า/คีย์ว่างโดยไม่ตั้งใจ
-      localStorage.setItem(GMAPS_KEY_STORAGE, v);
-      status.textContent = `คีย์ใช้งานได้ ✓ และบันทึกไว้แล้ว (${maskKey(v)}) — export Word จะใช้ Google Maps`;
-    }catch(e){
-      status.textContent = 'คีย์ใช้งานไม่ได้ — ' + (e && e.message ? e.message : String(e));
-    }
-  });
 })();
 
 // ---------- backup / restore ----------
