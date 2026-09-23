@@ -283,19 +283,10 @@
     <button class="tab-btn" id="tabBtnHistory" data-tab="history">History</button>
   </div>
 
-  <div id="tabToday">
-  <div class="datebar">
-    <button class="day-nav" id="prevDayBtn" aria-label="Previous day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
-    <label class="date-pill" id="datePill">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
-      <span id="datePillText"></span>
-      <input type="date" class="date-overlay" id="datePicker" aria-label="Choose date">
-    </label>
-    <button class="day-nav" id="nextDayBtn" aria-label="Next day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
-  </div>
+  <div id="tabToday" style="padding-top:18px;">
   <div class="past-banner" id="pastBanner">
     <div class="txt" id="pastBannerText"></div>
-    <button id="backTodayBtn">Today</button>
+    <button id="backHistoryBtn">Done</button>
   </div>
 
   <!-- ODOMETER CARD -->
@@ -438,6 +429,9 @@
 const STORAGE_KEY = 'mileage-log-v1';
 let db = loadDB();
 let currentDate = todayStr();
+// หน้า Today = ฟอร์มว่างของวันนี้ (เก็บเป็น draft ระหว่างกรอก กด Save แล้วย้ายเข้าประวัติและล้างฟอร์ม)
+// editingPast = กำลังแก้วันเก่าที่เปิดมาจากหน้า History (แก้ตรงลงวันนั้นเลย)
+let editingPast = false;
 
 function todayStr(){
   const d = new Date();
@@ -448,6 +442,13 @@ function loadDB(){
   catch(e){ return {days:{}}; }
 }
 function saveDB(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+function emptyRec(){ return {startKm:null,endKm:null,startPhoto:null,endPhoto:null,points:[]}; }
+function curRec(){
+  if(editingPast) return dayRec(currentDate);
+  if(!db.draft) db.draft = emptyRec();
+  db.draft.date = todayStr();
+  return db.draft;
+}
 function dayRec(dateStr){
   if(!db.days[dateStr]) db.days[dateStr] = {startKm:null,endKm:null,startPhoto:null,endPhoto:null,points:[]};
   return db.days[dateStr];
@@ -472,14 +473,6 @@ document.getElementById('msgOk').onclick = () => document.getElementById('msgDlg
 function parseDate(ds){ const [y,m,d] = ds.split('-').map(Number); return new Date(y, m-1, d); }
 function toDateStr(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
 function addDays(ds, n){ const dt = parseDate(ds); dt.setDate(dt.getDate()+n); return toDateStr(dt); }
-function daysAgo(ds){ return Math.round((parseDate(todayStr()) - parseDate(ds)) / 86400000); }
-function relDayLabel(ds){
-  const n = daysAgo(ds);
-  if(n === 0) return 'Today';
-  if(n === 1) return 'Yesterday';
-  if(n > 1 && n < 7) return `${n} days ago`;
-  return '';
-}
 const _WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function fmtDayMonth(ds){ const dt = parseDate(ds); return `${dt.getDate()} ${_MO[dt.getMonth()]}`; }
@@ -492,65 +485,61 @@ function hasData(r){
 function dataDates(){ return Object.keys(db.days).filter(d=>hasData(db.days[d])); }
 
 function refreshDateSelect(){
-  const today = todayStr();
-  const rel = relDayLabel(currentDate);
-  const txt = document.getElementById('datePillText');
-  txt.innerHTML = rel === 'Today'
-    ? `Today <span class="rel">· ${escHtml(fmtDayMonth(currentDate))}</span>`
-    : escHtml(fmtDateLong(currentDate)) + (rel ? ` <span class="rel">· ${rel}</span>` : '');
-  const picker = document.getElementById('datePicker');
-  picker.value = currentDate;
-  picker.max = today;
-  document.getElementById('addPastPicker').max = addDays(today, -1);
-  document.getElementById('nextDayBtn').disabled = currentDate >= today;
-
   const banner = document.getElementById('pastBanner');
-  if(currentDate !== today){
+  if(editingPast){
     document.getElementById('pastBannerText').innerHTML = hasData(db.days[currentDate])
       ? `Editing <b>${escHtml(fmtDateLong(currentDate))}</b>`
-      : `Adding a past entry for <b>${escHtml(fmtDateLong(currentDate))}</b>`;
+      : `New entry for <b>${escHtml(fmtDateLong(currentDate))}</b>`;
     banner.classList.add('show');
   } else banner.classList.remove('show');
-  document.getElementById('saveTodayBtn').textContent = currentDate === today
-    ? 'Save' : `Save ${fmtDayMonth(currentDate)}`;
-
+  document.getElementById('saveTodayBtn').textContent = editingPast ? `Save ${fmtDayMonth(currentDate)}` : 'Save';
   const hd = document.getElementById('headerDate');
   if(hd) hd.textContent = new Date().toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'});
 }
-function goToDate(ds){
+// เปิดฟอร์มของวันเก่า (จากหน้า History)
+function openPastDay(ds){
   if(!ds) return;
-  if(ds > todayStr()) ds = todayStr(); // บันทึกล่วงหน้าไม่ได้
-  if(ds === currentDate) return;
-  const tab = document.getElementById('tabToday');
-  tab.classList.add('switching');
-  setTimeout(()=>{
-    currentDate = ds;
-    slotSearchOpen = null;
-    document.getElementById('gpsLive').textContent = '';
-    loadDayIntoForm();
-    tab.classList.remove('switching');
-  }, 120);
+  if(ds > todayStr()) return;
+  editingPast = true;
+  currentDate = ds;
+  showForm('history');
 }
-document.getElementById('prevDayBtn').addEventListener('click', ()=>goToDate(addDays(currentDate, -1)));
-document.getElementById('nextDayBtn').addEventListener('click', ()=>goToDate(addDays(currentDate, 1)));
-document.getElementById('backTodayBtn').addEventListener('click', ()=>goToDate(todayStr()));
-document.getElementById('datePicker').addEventListener('change', e=>goToDate(e.target.value));
+// กลับไปหน้า Today (ฟอร์มว่างของวันนี้)
+function openToday(){
+  editingPast = false;
+  currentDate = todayStr();
+  showForm('today');
+}
+function showForm(activeTab){
+  slotSearchOpen = null;
+  document.getElementById('gpsLive').textContent = '';
+  loadDayIntoForm();
+  document.getElementById('tabBtnToday').classList.toggle('active', activeTab==='today');
+  document.getElementById('tabBtnHistory').classList.toggle('active', activeTab==='history');
+  document.getElementById('tabToday').style.display = '';
+  document.getElementById('tabHistory').style.display = 'none';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+document.getElementById('backHistoryBtn').addEventListener('click', ()=>switchTab('history'));
 document.getElementById('addPastPicker').addEventListener('change', e=>{
   const ds = e.target.value;
-  if(!ds) return;
-  switchTab('today');
-  goToDate(ds);
   e.target.value = '';
+  openPastDay(ds);
 });
-// บนคอมพิวเตอร์ คลิกแล้วเปิดปฏิทินเลย (บนมือถือแตะแล้วเปิดเองอยู่แล้ว)
-['datePicker','addPastPicker'].forEach(id=>{
-  const el = document.getElementById(id);
-  el.addEventListener('click', ()=>{ try{ el.showPicker && el.showPicker(); }catch(e){} });
-});
+document.getElementById('addPastPicker').addEventListener('click', e=>{ try{ e.target.showPicker && e.target.showPicker(); }catch(err){} });
+
+// ถ้ามี draft ค้างจากวันก่อน (กรอกแล้วลืมกด Save) บันทึกเข้าวันนั้นให้อัตโนมัติ
+(function flushStaleDraft(){
+  const d = db.draft;
+  if(!d || !d.date || d.date === todayStr()) return;
+  if(hasData(d)){ mergeIntoDay(d.date, d); }
+  db.draft = null;
+  saveDB();
+})();
 
 // ---------- form <-> data ----------
 function loadDayIntoForm(){
-  const rec = dayRec(currentDate);
+  const rec = curRec();
   document.getElementById('startKm').value = rec.startKm ?? '';
   document.getElementById('endKm').value = rec.endKm ?? '';
   setPhotoPreview('start', rec.startPhoto);
@@ -566,7 +555,7 @@ function setPhotoPreview(which, dataUrl){
   else{ img.style.display='none'; plus.style.display='block'; }
 }
 function updateStats(){
-  const rec = dayRec(currentDate);
+  const rec = curRec();
   const s = parseFloat(rec.startKm), e = parseFloat(rec.endKm);
   if(!isNaN(s) && !isNaN(e) && e >= s){
     const dist = e - s;
@@ -579,7 +568,7 @@ function updateStats(){
   }
 }
 function pointSlots(){
-  const rec = dayRec(currentDate);
+  const rec = curRec();
   if(!Array.isArray(rec.points)) rec.points = [];
   return rec.points;
 }
@@ -897,7 +886,7 @@ async function findNearbyPOI(lat, lng){
 
 ['start','end'].forEach(which=>{
   document.getElementById(which+'Km').addEventListener('input', e=>{
-    dayRec(currentDate)[which+'Km'] = e.target.value === '' ? null : parseFloat(e.target.value);
+    curRec()[which+'Km'] = e.target.value === '' ? null : parseFloat(e.target.value);
     saveDB(); updateStats();
   });
   document.getElementById(which+'File').addEventListener('change', e=>{
@@ -915,7 +904,7 @@ async function findNearbyPOI(lat, lng){
         canvas.height = img.height*scale;
         canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
         const compressed = canvas.toDataURL('image/jpeg', 0.75);
-        dayRec(currentDate)[which+'Photo'] = compressed;
+        curRec()[which+'Photo'] = compressed;
         saveDB();
         setPhotoPreview(which, compressed);
 
@@ -1066,7 +1055,7 @@ async function readOdometerFromCrop(which, ocrCanvas, rel){
       const num = parseFloat(best);
       if(!isNaN(num)){
         document.getElementById(which+'Km').value = num;
-        dayRec(currentDate)[which+'Km'] = num;
+        curRec()[which+'Km'] = num;
         saveDB();
         updateStats();
         if(statusEl) statusEl.textContent = `Read ${num} km — check it matches the photo`;
@@ -1111,20 +1100,45 @@ function captureSlot(i){
 }
 
 document.getElementById('clearPointsBtn').addEventListener('click', ()=>{
-  dayRec(currentDate).points = [];
+  curRec().points = [];
   saveDB(); renderPointSlots();
   document.getElementById('gpsLive').textContent = '';
 });
 
+// รวม draft เข้ากับข้อมูลของวันนั้น (ถ้าวันนี้เคย Save ไปแล้ว เช่น เช้าใส่ไมล์เริ่ม เย็นใส่ไมล์จบ)
+function mergeIntoDay(ds, src){
+  const rec = dayRec(ds);
+  ['startKm','endKm','startPhoto','endPhoto'].forEach(k=>{ if(src[k] != null && src[k] !== '') rec[k] = src[k]; });
+  const existing = (rec.points||[]).filter(p=>p!=null);
+  const added = (src.points||[]).filter(p=>p!=null);
+  rec.points = existing.concat(added).slice(0,5);
+  return existing.length + added.length > 5;
+}
 document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
-  // ค่าทุกอย่างถูกบันทึกลงเครื่องอัตโนมัติอยู่แล้วทุกครั้งที่พิมพ์/ถ่ายรูป/บันทึกจุด
-  // ปุ่มนี้ไว้ยืนยันให้แน่ใจอีกครั้งและแจ้งผลให้เห็นชัดเจน
-  const rec = dayRec(currentDate);
+  const rec = curRec();
   rec.startKm = document.getElementById('startKm').value === '' ? null : parseFloat(document.getElementById('startKm').value);
   rec.endKm = document.getElementById('endKm').value === '' ? null : parseFloat(document.getElementById('endKm').value);
+
+  if(editingPast){
+    // วันเก่าแก้ตรงลงวันนั้นอยู่แล้ว — กด Save = เสร็จแล้วกลับไปหน้า History
+    if(!hasData(rec)) delete db.days[currentDate];
+    saveDB();
+    const label = fmtDateLong(currentDate);
+    switchTab('history');
+    dlg('Saved', `Entry for ${label} saved.`);
+    return;
+  }
+
+  if(!hasData(rec)){ dlg('Nothing to save', 'Enter your odometer, a photo or a stop first.'); return; }
+  const today = todayStr();
+  const overflow = mergeIntoDay(today, rec);
+  db.draft = null;           // ล้างหน้า Today
   saveDB();
-  renderHistory(); refreshMonthSelect(); refreshDateSelect();
-  dlg('Saved', `Entry for ${fmtDateTH(currentDate)} saved.`);
+  loadDayIntoForm();
+  document.getElementById('gpsLive').textContent = '';
+  refreshMonthSelect();
+  window.scrollTo({top:0, behavior:'smooth'});
+  dlg('Saved', `Entry for ${fmtDateLong(today)} saved to History.` + (overflow ? ' Only the first 5 stops were kept.' : ''));
 });
 
 function buildRouteUrl(pts){
@@ -1168,23 +1182,18 @@ function renderHistory(){
   list.querySelectorAll('.history-item').forEach(row=>{
     row.onclick = (e)=>{
       if(e.target.closest('[data-del]') || e.target.closest('[data-edit]')) return;
-      currentDate = row.dataset.day;
-      loadDayIntoForm();
-      switchTab('today');
+      openPastDay(row.dataset.day);
     };
   });
   list.querySelectorAll('[data-edit]').forEach(b=>b.onclick=(e)=>{
     e.stopPropagation();
-    currentDate = b.dataset.edit;
-    loadDayIntoForm();
-    switchTab('today');
+    openPastDay(b.dataset.edit);
   });
   list.querySelectorAll('[data-del]').forEach(b=>b.onclick=(e)=>{
     e.stopPropagation();
     if(confirm('Delete entry for '+fmtDateTH(b.dataset.del)+'?')){
       delete db.days[b.dataset.del];
-      saveDB(); renderHistory(); refreshDateSelect();
-      if(currentDate === b.dataset.del){ currentDate = todayStr(); loadDayIntoForm(); }
+      saveDB(); renderHistory(); refreshMonthSelect();
     }
   });
 }
@@ -1776,11 +1785,13 @@ document.getElementById('restoreFile').addEventListener('change', e=>{
 
 // ---------- init ----------
 function switchTab(name){
+  if(name === 'today'){ openToday(); return; }
+  if(editingPast){ editingPast = false; currentDate = todayStr(); }
   document.getElementById('tabBtnToday').classList.toggle('active', name==='today');
   document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
   document.getElementById('tabToday').style.display = name==='today' ? '' : 'none';
   document.getElementById('tabHistory').style.display = name==='history' ? '' : 'none';
-  if(name==='history'){ renderHistory(); refreshMonthSelect(); }
+  if(name==='history'){ renderHistory(); refreshMonthSelect(); document.getElementById('addPastPicker').max = addDays(todayStr(), -1); }
   window.scrollTo({top:0, behavior:'smooth'});
 }
 document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
