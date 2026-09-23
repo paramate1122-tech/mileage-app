@@ -86,7 +86,7 @@
   @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tab-btn.active{ background:#636366; } }
   :root[data-theme="dark"] .tab-btn.active{ background:#636366; }
 
-  .datebar{ display:flex; align-items:center; gap:8px; margin:22px 0 10px; }
+  .datebar{ display:flex; align-items:center; gap:8px; margin:4px 0 12px; }
   .day-nav{ width:36px; height:36px; border-radius:50%; border:none; background:var(--fill); color:var(--accent);
     display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; padding:0;
     transition:opacity .15s, transform .1s; }
@@ -284,6 +284,15 @@
   </div>
 
   <div id="tabToday" style="padding-top:18px;">
+  <div class="datebar" id="dateBar" style="display:none;">
+    <button class="day-nav" id="prevDayBtn" aria-label="Previous day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <label class="date-pill" id="datePill">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+      <span id="datePillText"></span>
+      <input type="date" class="date-overlay" id="datePicker" aria-label="Choose date">
+    </label>
+    <button class="day-nav" id="nextDayBtn" aria-label="Next day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+  </div>
   <div class="past-banner" id="pastBanner">
     <div class="txt" id="pastBannerText"></div>
     <button id="backHistoryBtn">Done</button>
@@ -475,6 +484,13 @@ function toDateStr(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padS
 function addDays(ds, n){ const dt = parseDate(ds); dt.setDate(dt.getDate()+n); return toDateStr(dt); }
 const _WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function relDayLabel(ds){
+  const n = Math.round((parseDate(todayStr()) - parseDate(ds)) / 86400000);
+  if(n === 0) return 'Today';
+  if(n === 1) return 'Yesterday';
+  if(n > 1 && n < 7) return `${n} days ago`;
+  return '';
+}
 function fmtDayMonth(ds){ const dt = parseDate(ds); return `${dt.getDate()} ${_MO[dt.getMonth()]}`; }
 function fmtDateLong(ds){ const dt = parseDate(ds); return `${_WD[dt.getDay()]}, ${fmtDayMonth(ds)} ${dt.getFullYear()}`; }
 // วันที่ไม่มีข้อมูลอะไรเลย (เปิดดูเฉยๆ) ไม่ต้องแสดงในประวัติ/รายงาน
@@ -486,7 +502,14 @@ function dataDates(){ return Object.keys(db.days).filter(d=>hasData(db.days[d]))
 
 function refreshDateSelect(){
   const banner = document.getElementById('pastBanner');
+  document.getElementById('dateBar').style.display = editingPast ? '' : 'none';
   if(editingPast){
+    const rel = relDayLabel(currentDate);
+    document.getElementById('datePillText').innerHTML = escHtml(fmtDateLong(currentDate)) + (rel ? ` <span class="rel">· ${rel}</span>` : '');
+    const picker = document.getElementById('datePicker');
+    picker.value = currentDate;
+    picker.max = todayStr();
+    document.getElementById('nextDayBtn').disabled = currentDate >= todayStr();
     document.getElementById('pastBannerText').innerHTML = hasData(db.days[currentDate])
       ? `Editing <b>${escHtml(fmtDateLong(currentDate))}</b>`
       : `New entry for <b>${escHtml(fmtDateLong(currentDate))}</b>`;
@@ -521,6 +544,23 @@ function showForm(activeTab){
   window.scrollTo({top:0, behavior:'smooth'});
 }
 document.getElementById('backHistoryBtn').addEventListener('click', ()=>switchTab('history'));
+// ในหน้าแก้วันย้อนหลัง: เลื่อนวันด้วย ‹ › หรือแตะวันที่เพื่อเปิดปฏิทิน
+function hopPastDay(ds){
+  if(!ds || ds > todayStr() || ds === currentDate) return;
+  const tab = document.getElementById('tabToday');
+  tab.classList.add('switching');
+  setTimeout(()=>{
+    currentDate = ds;
+    slotSearchOpen = null;
+    document.getElementById('gpsLive').textContent = '';
+    loadDayIntoForm();
+    tab.classList.remove('switching');
+  }, 120);
+}
+document.getElementById('prevDayBtn').addEventListener('click', ()=>hopPastDay(addDays(currentDate, -1)));
+document.getElementById('nextDayBtn').addEventListener('click', ()=>hopPastDay(addDays(currentDate, 1)));
+document.getElementById('datePicker').addEventListener('change', e=>hopPastDay(e.target.value));
+document.getElementById('datePicker').addEventListener('click', e=>{ try{ e.target.showPicker && e.target.showPicker(); }catch(err){} });
 document.getElementById('addPastPicker').addEventListener('change', e=>{
   const ds = e.target.value;
   e.target.value = '';
