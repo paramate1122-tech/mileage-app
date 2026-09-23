@@ -230,6 +230,7 @@
 
   .points-count{ color:var(--muted); font-size:13px; margin-top:8px; }
   .gps-live{ font-size:13px; color:var(--muted); margin-top:6px; min-height:16px; }
+  .ocr-adjust{ border:none; background:none; color:var(--accent); font:inherit; font-weight:600; padding:0 0 0 2px; cursor:pointer; }
   .ocr-status{ font-size:12px; color:var(--muted); min-height:14px; line-height:1.4; }
 
   .point-slots{ margin:-4px 0 0; }
@@ -1185,7 +1186,8 @@ async function findNearbyPOI(lat, lng){
         ocrCanvas.height = img.height*ocrScale;
         ocrCanvas.getContext('2d').drawImage(img,0,0,ocrCanvas.width,ocrCanvas.height);
 
-        openCropDialog(which, compressed, ocrCanvas);
+        // อ่านเลขไมล์อัตโนมัติจากทั้งรูป — ถ้าหาไม่เจอค่อยเปิดหน้าให้ลากกรอบเอง
+        autoReadOdometer(which, compressed, ocrCanvas);
       };
       img.src = ev.target.result;
     };
@@ -1294,6 +1296,7 @@ function getOcrWorker(){
         tessedit_pageseg_mode: '7' // treat crop as a single line of text
       });
       ocrLoadProgress = 1;
+      worker._mode = 'line';
       return worker;
     }).catch(err=>{
       ocrWorkerPromise = null;
@@ -1314,6 +1317,98 @@ function preloadOcr(){
   // แตะช่องรูปไมล์ = เริ่มโหลดทันที (ระหว่างเปิดกล้อง/เลือกรูป)
   ['startPhotoBtn','endPhotoBtn'].forEach(id=>document.getElementById(id).addEventListener('pointerdown', preloadOcr, {passive:true}));
 })();
+
+// 'line' = อ่านเฉพาะกรอบที่เลือก (ตัวเลขบรรทัดเดียว), 'auto' = หาข้อความทั่วทั้งรูป
+async function setOcrMode(worker, mode){
+  if(worker._mode === mode) return;
+  await worker.setParameters(mode === 'auto'
+    ? { tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }
+    : { tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
+  worker._mode = mode;
+}
+function lastKnownKm(which){
+  let best = null;
+  Object.keys(db.days).forEach(d=>{
+    const r = db.days[d];
+    [r.startKm, r.endKm].forEach(v=>{ if(typeof v === 'number' && (best === null || v > best)) best = v; });
+  });
+  const cur = curRec();
+  if(which === 'end' && typeof cur.startKm === 'number') best = Math.max(best ?? 0, cur.startKm);
+  return best;
+}
+// เลือกตัวเลขที่น่าจะเป็นเลขไมล์รวม: มี "km" ต่อท้าย (ไม่ใช่ km/h), 5–7 หลัก, ใกล้กับเลขไมล์ครั้งก่อน
+function pickOdometer(words, which){
+  const last = lastKnownKm(which);
+  let best = null;
+  words.forEach((w, i)=>{
+    const t = (w.text || '').trim();
+    if(!t || /km\s*\/\s*h/i.test(t) || /^[-–—]/.test(t)) return;
+    const digits = t.replace(/[^0-9]/g, '');
+    const core = t.replace(/km$/i, '').replace(/[.,]/g, '');
+    if(digits.length < 3 || digits.length > 7 || digits.length < core.length * 0.75) return;
+    const next = words[i+1];
+    const hasKm = /km$/i.test(t) || (next && /^km$/i.test((next.text||'').trim()) && Math.abs(next.bbox.y0 - w.bbox.y0) < (w.bbox.y1 - w.bbox.y0));
+    const num = parseInt(digits, 10);
+    let score = w.confidence / 100;
+    if(hasKm) score += 5;
+    if(digits.length >= 5) score += 2;
+    if(digits[0] === '0' && digits.length >= 5) score += 1;
+    if(last !== null){
+      if(num >= last && num - last <= 3000) score += 6;
+      else if(Math.abs(num - last) <= 20000) score += 2;
+      else score -= 2;
+    }
+    if(!best || score > best.score) best = { num, score, bbox: w.bbox };
+  });
+  return best && best.score >= 2.5 ? best : null;
+}
+
+async function autoReadOdometer(which, displayDataUrl, ocrCanvas){
+  const statusEl = document.getElementById(which+'OcrStatus');
+  if(typeof Tesseract === 'undefined'){ openCropDialog(which, displayDataUrl, ocrCanvas); return; }
+  const setStatus = t => { if(statusEl) statusEl.textContent = t; };
+  setStatus(ocrLoadProgress >= 1 ? 'Reading odometer…' : `Loading reader… ${Math.round(ocrLoadProgress*100)}%`);
+  ocrProgressListener = p => { if(p < 1) setStatus(`Loading reader… ${Math.round(p*100)}%`); };
+  try{
+    const scale = Math.min(1, 1000 / ocrCanvas.width);
+    const c = document.createElement('canvas');
+    c.width = Math.round(ocrCanvas.width*scale); c.height = Math.round(ocrCanvas.height*scale);
+    const x = c.getContext('2d');
+    try{ x.filter = 'grayscale(1) contrast(1.5) brightness(1.1)'; }catch(err){}
+    x.drawImage(ocrCanvas, 0, 0, c.width, c.height);
+
+    const worker = await getOcrWorker();
+    ocrProgressListener = null;
+    setStatus('Reading odometer…');
+    await setOcrMode(worker, 'auto');
+    const { data } = await worker.recognize(c);
+    const hit = pickOdometer(data.words || [], which);
+    if(!hit){
+      setStatus('Couldn’t find the number — drag the box over it.');
+      openCropDialog(which, displayDataUrl, ocrCanvas);
+      return;
+    }
+    // จำตำแหน่งที่เจอ เผื่อกด Adjust จะได้เปิดกรอบตรงนั้นเลย
+    const pad = 0.01;
+    lastTapRel[which] = {
+      x: Math.max(0, hit.bbox.x0 / c.width - pad), y: Math.max(0, hit.bbox.y0 / c.height - pad),
+      w: Math.min(1, (hit.bbox.x1 - hit.bbox.x0) / c.width + pad*2), h: Math.min(1, (hit.bbox.y1 - hit.bbox.y0) / c.height + pad*2)
+    };
+    document.getElementById(which+'Km').value = hit.num;
+    curRec()[which+'Km'] = hit.num;
+    saveDB();
+    updateStats();
+    if(statusEl){
+      statusEl.innerHTML = `Read ${hit.num.toLocaleString('en-US')} km · <button class="ocr-adjust" type="button">Adjust</button>`;
+      statusEl.querySelector('.ocr-adjust').onclick = ()=>openCropDialog(which, displayDataUrl, ocrCanvas);
+    }
+  }catch(err){
+    console.error('Auto OCR error:', err);
+    ocrProgressListener = null;
+    setStatus('');
+    openCropDialog(which, displayDataUrl, ocrCanvas);
+  }
+}
 
 async function readOdometerFromCrop(which, ocrCanvas, rel){
   const statusEl = document.getElementById(which+'OcrStatus');
@@ -1344,6 +1439,7 @@ async function readOdometerFromCrop(which, ocrCanvas, rel){
     const worker = await getOcrWorker();
     ocrProgressListener = null;
     if(statusEl) statusEl.textContent = 'Reading odometer…';
+    await setOcrMode(worker, 'line');
     const { data } = await worker.recognize(cropCanvas);
     const digitsOnly = (data.text || '').replace(/[^0-9]/g,' ').trim().split(/\s+/).filter(Boolean);
     if(digitsOnly.length){
