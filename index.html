@@ -538,7 +538,160 @@ function loadDB(){
   try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {days:{}}; }
   catch(e){ return {days:{}}; }
 }
-function saveDB(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+// บันทึกลง localStorage (เล็ก ~5MB: เก็บแค่ตัวเลข/จุดแวะ/วันที่ + "ป้ายชี้" ไปยังรูป)
+// ถ้าบันทึกไม่สำเร็จ ต้องบอกผู้ใช้ทันที — ห้ามเงียบ
+let _saveWarned = false;
+function saveDB(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    _saveWarned = false;
+    return true;
+  }catch(e){
+    console.error('saveDB failed', e);
+    // ยังมีรูปค้างอยู่ใน localStorage -> ลองย้ายไปที่เก็บรูปก่อน แล้วค่อยบันทึกใหม่
+    if(hasInlinePhotos()) migratePhotosToIdb().then(ok=>{ if(ok) saveDB(); });
+    if(!_saveWarned){
+      _saveWarned = true;
+      setTimeout(()=>dlg('Could not save', 'Your latest change was NOT saved because this device’s storage is full or unavailable. Please tap History → Back up (JSON) now to keep a copy of your data.'), 0);
+    }
+    return false;
+  }
+}
+
+// ---------- photo store (IndexedDB) ----------
+// รูปไมล์เก็บใน IndexedDB (จุได้หลายร้อย MB) — ในข้อมูลวันเก็บแค่ป้ายชี้ "idb:<id>"
+const PHOTO_DB = 'mileage-photos', PHOTO_STORE = 'photos', META_STORE = 'meta';
+let _idbPromise = null;
+function idbOpen(){
+  if(_idbPromise) return _idbPromise;
+  _idbPromise = new Promise((resolve, reject)=>{
+    if(!('indexedDB' in window)){ reject(new Error('IndexedDB not supported')); return; }
+    const req = indexedDB.open(PHOTO_DB, 1);
+    req.onupgradeneeded = ()=>{
+      const d = req.result;
+      if(!d.objectStoreNames.contains(PHOTO_STORE)) d.createObjectStore(PHOTO_STORE, { keyPath:'id' });
+      if(!d.objectStoreNames.contains(META_STORE)) d.createObjectStore(META_STORE, { keyPath:'key' });
+    };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+    req.onblocked = ()=>reject(new Error('IndexedDB blocked'));
+  }).catch(e=>{ _idbPromise = null; throw e; });
+  return _idbPromise;
+}
+function idbTx(store, mode, fn){
+  return idbOpen().then(d=>new Promise((resolve, reject)=>{
+    const tx = d.transaction(store, mode);
+    const st = tx.objectStore(store);
+    let out;
+    Promise.resolve(fn(st)).then(v=>{ out = v; });
+    tx.oncomplete = ()=>resolve(out);
+    tx.onerror = ()=>reject(tx.error);
+    tx.onabort = ()=>reject(tx.error || new Error('transaction aborted'));
+  }));
+}
+function idbReq(r){ return new Promise((res, rej)=>{ r.onsuccess = ()=>res(r.result); r.onerror = ()=>rej(r.error); }); }
+function newPhotoId(){ return 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10); }
+const isPhotoRef = v => typeof v === 'string' && v.startsWith('idb:');
+const isInlinePhoto = v => typeof v === 'string' && v.startsWith('data:');
+const _photoMem = new Map(); // cache รูปที่โหลดแล้ว
+
+// เขียนรูปแล้วอ่านกลับมาตรวจว่าตรงกันจริง ก่อนคืนป้ายชี้
+async function putPhoto(dataUrl){
+  const id = newPhotoId();
+  await idbTx(PHOTO_STORE, 'readwrite', st=>{ st.put({ id, data:dataUrl, created:Date.now() }); });
+  const back = await idbTx(PHOTO_STORE, 'readonly', st=>idbReq(st.get(id)));
+  if(!back || back.data !== dataUrl) throw new Error('photo verify failed');
+  _photoMem.set(id, dataUrl);
+  return 'idb:' + id;
+}
+// คืน dataURL ของรูป (รองรับทั้งรูปเก่าที่ยังเป็น data: และป้ายชี้ idb:)
+async function getPhotoData(ref){
+  if(!ref) return null;
+  if(isInlinePhoto(ref)) return ref;
+  if(!isPhotoRef(ref)) return null;
+  const id = ref.slice(4);
+  if(_photoMem.has(id)) return _photoMem.get(id);
+  const row = await idbTx(PHOTO_STORE, 'readonly', st=>idbReq(st.get(id)));
+  const data = row ? row.data : null;
+  if(data) _photoMem.set(id, data);
+  return data;
+}
+function allRecs(){
+  const recs = Object.keys(db.days).map(d=>db.days[d]);
+  if(db.draft) recs.push(db.draft);
+  return recs;
+}
+function hasInlinePhotos(){
+  return allRecs().some(r=>isInlinePhoto(r.startPhoto) || isInlinePhoto(r.endPhoto));
+}
+
+// ย้ายรูปเก่าที่อยู่ใน localStorage ไป IndexedDB อย่างปลอดภัย:
+//  1) เก็บสำเนาข้อมูลทั้งก้อนไว้ใน IndexedDB ก่อน (กันเหนียว)
+//  2) คัดลอกรูปทุกรูป แล้วอ่านกลับมาตรวจทีละรูป
+//  3) ตรวจผ่านหมดแล้วเท่านั้น ถึงเปลี่ยนเป็นป้ายชี้และบันทึก — พลาดตรงไหนหยุดทันที ข้อมูลเดิมไม่ถูกแตะ
+let _migrating = null;
+function migratePhotosToIdb(){
+  if(_migrating) return _migrating;
+  const run = (async ()=>{
+    if(!hasInlinePhotos()) return true;
+    const moves = []; // {rec, field, original, ref}
+    let swapped = false;
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY) || JSON.stringify(db);
+      await idbTx(META_STORE, 'readwrite', st=>{ st.put({ key:'premigration-backup', savedAt:Date.now(), data:raw }); });
+      const snap = await idbTx(META_STORE, 'readonly', st=>idbReq(st.get('premigration-backup')));
+      if(!snap || snap.data !== raw) throw new Error('snapshot verify failed');
+
+      for(const rec of allRecs()){
+        for(const field of ['startPhoto','endPhoto']){
+          const v = rec[field];
+          if(isInlinePhoto(v)) moves.push({ rec, field, original:v, ref: await putPhoto(v) });
+        }
+      }
+      // ทุกรูปตรวจผ่านแล้ว -> เปลี่ยนเป็นป้ายชี้ (ข้ามช่องที่ผู้ใช้เปลี่ยนรูประหว่างย้าย)
+      moves.forEach(m=>{ if(m.rec[m.field] === m.original){ m.rec[m.field] = m.ref; m.done = true; } });
+      swapped = true;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+      return true;
+    }catch(e){
+      console.error('Photo migration failed — data left unchanged', e);
+      // บันทึกไม่สำเร็จหลังเปลี่ยนป้ายชี้ -> ย้อนกลับเป็นรูปเดิม ให้ตรงกับที่บันทึกไว้ในเครื่อง
+      if(swapped) moves.forEach(m=>{ if(m.done && m.rec[m.field] === m.ref) m.rec[m.field] = m.original; });
+      return false;
+    }
+  })();
+  // ล้างสถานะ "กำลังย้าย" หลังงานนี้จบจริง (ถ้าล้างใน finally ภายใน จะล้างก่อนตั้งค่าเมื่อไม่มีอะไรให้ย้าย แล้วค้างตลอดไป)
+  _migrating = run;
+  run.finally(()=>{ if(_migrating === run) _migrating = null; });
+  return run;
+}
+
+// ลบรูปที่ไม่มีวันไหนอ้างถึงแล้ว (เช่น ถ่ายใหม่ทับ หรือลบวันทิ้ง) — ทำหลังย้ายเสร็จเท่านั้น และไม่แตะรูปที่เพิ่งสร้างใน 1 ชม.
+async function cleanupOrphanPhotos(){
+  if(hasInlinePhotos()) return;
+  const used = new Set();
+  allRecs().forEach(r=>['startPhoto','endPhoto'].forEach(f=>{ if(isPhotoRef(r[f])) used.add(r[f].slice(4)); }));
+  const cutoff = Date.now() - 3600*1000;
+  await idbTx(PHOTO_STORE, 'readwrite', st=>new Promise(res=>{
+    const cur = st.openCursor();
+    cur.onsuccess = ()=>{
+      const c = cur.result; if(!c){ res(); return; }
+      const v = c.value;
+      if(!used.has(v.id) && (v.created||0) < cutoff){ c.delete(); _photoMem.delete(v.id); }
+      c.continue();
+    };
+    cur.onerror = ()=>res();
+  }));
+}
+
+// เริ่มต้น: ขอให้ Safari เก็บข้อมูลถาวร, ย้ายรูปเก่า (ถ้ามี), แล้วเก็บกวาดรูปที่ไม่ใช้
+async function initPhotoStore(){
+  try{ if(navigator.storage && navigator.storage.persist) await navigator.storage.persist(); }catch(e){}
+  try{
+    const ok = await migratePhotosToIdb();
+    if(ok) await cleanupOrphanPhotos();
+  }catch(e){ console.error('photo store init failed', e); }
+}
 function emptyRec(){ return {startKm:null,endKm:null,startPhoto:null,endPhoto:null,points:[]}; }
 function curRec(){
   if(editingPast) return dayRec(currentDate);
@@ -817,11 +970,19 @@ function loadDayIntoForm(){
   renderPointSlots();
   refreshDateSelect();
 }
-function setPhotoPreview(which, dataUrl){
+const _previewToken = { start:0, end:0 };
+function setPhotoPreview(which, ref){
   const img = document.getElementById(which+'Img');
   const plus = document.getElementById(which+'Plus');
-  if(dataUrl){ img.src = dataUrl; img.style.display='block'; plus.style.display='none'; }
-  else{ img.style.display='none'; plus.style.display='block'; }
+  const token = ++_previewToken[which];
+  const show = url=>{
+    if(token !== _previewToken[which]) return; // ผู้ใช้เปลี่ยนวันไปแล้ว
+    if(url){ img.src = url; img.style.display='block'; plus.style.display='none'; }
+    else{ img.style.display='none'; plus.style.display='block'; }
+  };
+  if(!ref){ show(null); return; }
+  if(isInlinePhoto(ref)){ show(ref); return; }
+  getPhotoData(ref).then(show).catch(()=>show(null));
 }
 function updateStats(){
   const rec = curRec();
@@ -1173,9 +1334,17 @@ async function findNearbyPOI(lat, lng){
         canvas.height = img.height*scale;
         canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
         const compressed = canvas.toDataURL('image/jpeg', 0.75);
-        curRec()[which+'Photo'] = compressed;
-        saveDB();
+        const target = curRec(); // จำไว้ว่าเป็นรูปของวันไหน ก่อนรอเขียนลงที่เก็บรูป
         setPhotoPreview(which, compressed);
+        putPhoto(compressed).then(ref=>{
+          target[which+'Photo'] = ref;
+          saveDB();
+        }).catch(err=>{
+          // เก็บรูปใน IndexedDB ไม่ได้ -> เก็บแบบเดิม (ถ้าเต็ม saveDB จะเตือน)
+          console.error('putPhoto failed, storing inline', err);
+          target[which+'Photo'] = compressed;
+          saveDB();
+        });
 
         // canvas ความละเอียดสูงกว่า ไว้ใช้ครอบตัดเฉพาะจุดที่แตะสำหรับ OCR
         const ocrMaxW = 1400;
@@ -2163,17 +2332,19 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
       children.push(new Paragraph({ text:fmtDateShort(d), heading:HeadingLevel.HEADING_2, spacing:{before:400}, pageBreakBefore: di>0 }));
 
       const photoRunChildren = [];
-      if(r.startPhoto){
+      const startData = await getPhotoData(r.startPhoto).catch(()=>null);
+      const endData = await getPhotoData(r.endPhoto).catch(()=>null);
+      if(startData){
         try{
-          photoRunChildren.push(new ImageRun({ data:b64ToUint8(r.startPhoto), transformation:{width:220,height:165} }));
+          photoRunChildren.push(new ImageRun({ data:b64ToUint8(startData), transformation:{width:220,height:165} }));
         }catch(e){ console.error('embed start photo failed', e); }
       }
-      if(r.endPhoto){
+      if(endData){
         if(photoRunChildren.length){
           photoRunChildren.push(new TextRun({ text:'   ' }));
         }
         try{
-          photoRunChildren.push(new ImageRun({ data:b64ToUint8(r.endPhoto), transformation:{width:220,height:165} }));
+          photoRunChildren.push(new ImageRun({ data:b64ToUint8(endData), transformation:{width:220,height:165} }));
         }catch(e){ console.error('embed end photo failed', e); }
       }
       if(photoRunChildren.length){
@@ -2219,8 +2390,22 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
 })();
 
 // ---------- backup / restore ----------
-document.getElementById('backupBtn').addEventListener('click', ()=>{
-  const blob = new Blob([JSON.stringify(db)], {type:'application/json'});
+// ไฟล์สำรองใส่รูปจริงลงไปด้วย (รูปแบบเดิม) — เปิดกู้คืนได้ทั้งแอปเวอร์ชันเก่าและใหม่
+async function buildBackupJSON(){
+  const copy = JSON.parse(JSON.stringify(db));
+  const recs = Object.keys(copy.days).map(d=>copy.days[d]); if(copy.draft) recs.push(copy.draft);
+  for(const r of recs){
+    for(const f of ['startPhoto','endPhoto']){
+      if(isPhotoRef(r[f])) r[f] = await getPhotoData(r[f]).catch(()=>null);
+    }
+  }
+  return JSON.stringify(copy);
+}
+document.getElementById('backupBtn').addEventListener('click', async ()=>{
+  let json;
+  try{ json = await buildBackupJSON(); }
+  catch(e){ dlg('Backup failed', 'Could not read the photos for the backup. Please try again.'); return; }
+  const blob = new Blob([json], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `mileage-backup-${todayStr()}.json`;
@@ -2238,9 +2423,12 @@ document.getElementById('restoreFile').addEventListener('change', e=>{
       const parsed = JSON.parse(ev.target.result);
       if(!parsed.days) throw new Error('bad format');
       db = parsed;
-      saveDB();
-      loadDayIntoForm(); renderHistory(); refreshMonthSelect(); refreshDateSelect();
-      dlg('Restored', 'Your data has been restored.');
+      // ย้ายรูปจากไฟล์สำรองเข้าที่เก็บรูปก่อน แล้วค่อยบันทึก (ไม่อย่างนั้นไฟล์ใหญ่จะเกินพื้นที่ทันที)
+      migratePhotosToIdb().then(ok=>{
+        const saved = ok || saveDB();
+        loadDayIntoForm(); renderHistory(); refreshMonthSelect(); refreshDateSelect();
+        if(saved) dlg('Restored', 'Your data has been restored.');
+      });
     }catch(err){
       dlg('Invalid file', 'This backup file could not be read.');
     }
@@ -2298,6 +2486,7 @@ document.getElementById('tabBtnHistory').addEventListener('click', ()=>switchTab
 loadDayIntoForm();
 renderHistory();
 refreshMonthSelect();
+initPhotoStore();
 </script>
 </body>
 </html>
