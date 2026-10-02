@@ -282,6 +282,14 @@
   .history-item .d{ font-size:16px; }
   .history-item .d .dist{ color:var(--muted); font-size:13px; display:block; margin-top:2px; font-variant-numeric:tabular-nums; }
   .history-item .actions{ display:flex; gap:4px; }
+  .history-month{
+    -webkit-appearance:none; appearance:none; width:100%; margin-bottom:6px;
+    background:var(--fill); color:var(--text); border:none; border-radius:10px;
+    padding:12px 38px 12px 14px; font-family:var(--sans); font-size:16px; cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 12px center; background-size:18px;
+  }
+  .history-summary{ font-size:13px; color:var(--muted); margin:4px 2px 2px; font-variant-numeric:tabular-nums; }
   .icon-btn{ background:none; border:none; color:var(--accent); font-size:15px; padding:6px 8px; cursor:pointer; font-family:var(--sans); }
   .icon-btn.del{ color:var(--red); }
 
@@ -432,13 +440,15 @@
   <div id="tabHistory" style="display:none; padding-top:18px;">
   <!-- HISTORY -->
   <div class="card">
-    <h2>All entries</h2>
+    <h2>Entries</h2>
     <button class="btn btn-ghost add-past" id="addPastBtn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       Add a past day
     </button>
+    <select id="historyMonthSelect" class="history-month" aria-label="Month"></select>
+    <div class="history-summary" id="historySummary"></div>
     <div id="historyList"></div>
-    <div class="hint">Tap a day to view or edit it. Use “Add a past day” to fill in a day you missed.</div>
+    <div class="hint">Pick a month to see its entries. Tap a day to view or edit it. Use “Add a past day” to fill in a day you missed.</div>
   </div>
 
   <!-- EXPORT -->
@@ -763,6 +773,7 @@ function openPastDay(ds){
   if(ds > todayStr()) return;
   editingPast = true;
   currentDate = ds;
+  historyMonthWanted = ds.slice(0,7);
   showForm('today');
 }
 // กลับไปหน้า Today (ฟอร์มว่างของวันนี้)
@@ -1625,16 +1636,55 @@ document.getElementById('viewRouteBtn').addEventListener('click', ()=>{
 });
 
 // ---------- history ----------
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function fmtMonthLabel(m){
+  const [y,mo] = m.split('-');
+  return `${MONTH_NAMES[parseInt(mo)-1]} ${parseInt(y)}`;
+}
+// เดือนที่มีข้อมูล + เดือนปัจจุบัน (ใหม่สุดก่อน)
+function availableMonths(){
+  const months = new Set(dataDates().map(d=>d.slice(0,7)));
+  months.add(todayStr().slice(0,7));
+  return Array.from(months).sort().reverse();
+}
+function dayDistance(r){
+  return (r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm) ? r.endKm-r.startKm : null;
+}
+// เปิด/แก้วันเก่าแล้วกลับมา History ให้แสดงเดือนของวันนั้น
+let historyMonthWanted = null;
+function refreshHistoryMonthSelect(){
+  const sel = document.getElementById('historyMonthSelect');
+  const sorted = availableMonths();
+  const prev = historyMonthWanted || sel.value;
+  historyMonthWanted = null;
+  sel.innerHTML = sorted.map(m=>`<option value="${m}">${fmtMonthLabel(m)}</option>`).join('');
+  sel.value = (prev && sorted.includes(prev)) ? prev : sorted[0];
+}
+document.getElementById('historyMonthSelect').addEventListener('change', ()=>{
+  renderHistory();
+  // ให้เดือนที่ Export ตามเดือนที่กำลังดูอยู่
+  const exp = document.getElementById('monthSelect');
+  const m = document.getElementById('historyMonthSelect').value;
+  if(Array.from(exp.options).some(o=>o.value===m)) exp.value = m;
+});
+
 function renderHistory(){
+  refreshHistoryMonthSelect();
   const list = document.getElementById('historyList');
-  const dates = dataDates().sort().reverse();
-  if(dates.length===0){ list.innerHTML = '<div class="empty">No entries yet</div>'; return; }
+  const summary = document.getElementById('historySummary');
+  const month = document.getElementById('historyMonthSelect').value;
+  const dates = dataDates().filter(d=>d.slice(0,7)===month).sort().reverse();
+  if(dates.length===0){
+    summary.textContent = '';
+    list.innerHTML = `<div class="empty">No entries in ${escHtml(fmtMonthLabel(month))}</div>`;
+    return;
+  }
+  const total = dates.reduce((s,d)=>s+(dayDistance(db.days[d])||0), 0);
+  summary.textContent = `${dates.length} ${dates.length>1?'days':'day'} · ${total.toLocaleString(undefined,{maximumFractionDigits:1})} km`;
   list.innerHTML = dates.map(d=>{
     const r = db.days[d];
-    let distTxt = '—';
-    if(r.startKm!=null && r.endKm!=null && r.endKm>=r.startKm){
-      distTxt = (r.endKm-r.startKm).toLocaleString(undefined,{maximumFractionDigits:1})+' km';
-    }
+    const dist = dayDistance(r);
+    const distTxt = dist==null ? '—' : dist.toLocaleString(undefined,{maximumFractionDigits:1})+' km';
     const ptsCount = (r.points||[]).filter(p=>p!=null).length;
     return `<div class="history-item" data-day="${d}">
       <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}</span></div>
@@ -1666,15 +1716,9 @@ function renderHistory(){
 // ---------- export excel ----------
 function refreshMonthSelect(){
   const sel = document.getElementById('monthSelect');
-  const months = new Set(dataDates().map(d=>d.slice(0,7)));
-  months.add(todayStr().slice(0,7));
-  const sorted = Array.from(months).sort().reverse();
+  const sorted = availableMonths();
   const prev = sel.value;
-  sel.innerHTML = sorted.map(m=>{
-    const [y,mo] = m.split('-');
-    const names=['January','February','March','April','May','June','July','August','September','October','November','December'];
-    return `<option value="${m}">${names[parseInt(mo)-1]} ${parseInt(y)}</option>`;
-  }).join('');
+  sel.innerHTML = sorted.map(m=>`<option value="${m}">${fmtMonthLabel(m)}</option>`).join('');
   if(prev && sorted.includes(prev)) sel.value = prev;
 }
 document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
