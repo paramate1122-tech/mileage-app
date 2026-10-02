@@ -583,20 +583,32 @@
     <h3 id="pdTitle">Add project</h3>
     <div class="proj-field">
       <label for="pdNumber">Project number</label>
-      <input type="text" id="pdNumber" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false">
+      <div class="proj-input">
+        <input type="text" id="pdNumber" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false">
+        <button type="button" class="proj-clear pd-clear" data-clear-for="pdNumber" aria-label="Clear project number"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+      </div>
     </div>
     <div class="proj-field">
       <label for="pdName">Project name</label>
-      <input type="text" id="pdName" autocomplete="off">
+      <div class="proj-input">
+        <input type="text" id="pdName" autocomplete="off">
+        <button type="button" class="proj-clear pd-clear" data-clear-for="pdName" aria-label="Clear project name"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+      </div>
     </div>
     <div class="proj-row" style="margin-bottom:10px;">
       <div class="proj-field">
         <label for="pdManager">Project Manager</label>
-        <input type="text" id="pdManager" autocomplete="off">
+        <div class="proj-input">
+          <input type="text" id="pdManager" autocomplete="off">
+          <button type="button" class="proj-clear pd-clear" data-clear-for="pdManager" aria-label="Clear project manager"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+        </div>
       </div>
       <div class="proj-field">
         <label for="pdNickname">Nickname</label>
-        <input type="text" id="pdNickname" autocomplete="off">
+        <div class="proj-input">
+          <input type="text" id="pdNickname" autocomplete="off">
+          <button type="button" class="proj-clear pd-clear" data-clear-for="pdNickname" aria-label="Clear nickname"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+        </div>
       </div>
     </div>
     <div class="pd-dd" id="pdPeopleDd"></div>
@@ -1900,7 +1912,7 @@ function applyProjectNumber(n){
     if(e.target === numIn || dd.contains(e.target)) return;
     close();
   });
-  document.querySelectorAll('.proj-clear').forEach(b=>{
+  document.querySelectorAll('.proj-clear:not(.pd-clear)').forEach(b=>{
     b.addEventListener('mousedown', e=>e.preventDefault()); // ไม่ให้ช่องเสีย focus (คีย์บอร์ดไม่หุบ)
     b.addEventListener('click', ()=>{
       numIn.value = '';
@@ -1962,6 +1974,7 @@ function openProjDlg(num){
   document.getElementById('pdNickname').value = info ? info.nickname || '' : '';
   document.getElementById('pdErr').textContent = '';
   document.getElementById('pdPeopleDd').classList.remove('open');
+  syncProjClears();
   const d = document.getElementById('projDlg');
   d.classList.remove('closing');
   d.showModal();
@@ -1994,7 +2007,7 @@ document.getElementById('pdNumber').addEventListener('input', e=>{
       el.addEventListener('click', e=>{
         e.preventDefault();
         const p = items[parseInt(el.dataset.k)];
-        pmIn.value = p.manager; nnIn.value = p.nickname;
+        pmIn.value = p.manager; nnIn.value = p.nickname; syncProjClears();
         close(); pmIn.blur(); nnIn.blur();
       });
     });
@@ -2007,6 +2020,17 @@ document.getElementById('pdNumber').addEventListener('input', e=>{
     }, 200));
   });
 })();
+// ปุ่ม ⓧ ล้างข้อความในหน้าต่าง Add/Edit project
+document.querySelectorAll('.pd-clear').forEach(b=>{
+  const inp = document.getElementById(b.dataset.clearFor);
+  inp.addEventListener('input', syncProjClears);
+  b.addEventListener('mousedown', e=>e.preventDefault());
+  b.addEventListener('click', ()=>{
+    inp.value = '';
+    inp.dispatchEvent(new Event('input', {bubbles:true}));
+    inp.focus();
+  });
+});
 document.getElementById('pdCancel').addEventListener('click', ()=>closeDialogSmooth(document.getElementById('projDlg')));
 document.getElementById('pdSave').addEventListener('click', ()=>{
   const n = normProjNumber(document.getElementById('pdNumber').value);
