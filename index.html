@@ -320,6 +320,10 @@
   #pdNumber::placeholder{ text-transform:none; letter-spacing:0; }
   .pd-err{ font-size:13px; color:var(--red); min-height:16px; margin-top:6px; }
   .proj-item .d .num{ font-weight:600; letter-spacing:.01em; }
+  .proj-item .src-tag{ display:inline-block; margin-left:6px; padding:1px 6px; border-radius:6px; font-size:11px; font-weight:600;
+    color:var(--accent); background:var(--fill); vertical-align:2px; }
+  #sheetStatus{ font-size:13px; color:var(--muted); min-height:16px; margin-top:8px; }
+  #sheetStatus.err{ color:var(--red); }
   #projNumber{ text-transform:uppercase; letter-spacing:.02em; }
   #projNumber::placeholder{ text-transform:none; letter-spacing:0; }
   #projDd{ right:0; }
@@ -540,6 +544,19 @@
     </button>
     <div id="projectList"></div>
     <div class="hint">Projects here appear in the Project number list on Home. Only projects saved here can be used on Home. Tap a project to edit it — days that use it are updated too.</div>
+  </div>
+  <div class="card">
+    <h2>Shared project list (Google Sheet)</h2>
+    <div class="proj-field">
+      <label for="sheetUrl">Google Sheet link</label>
+      <input type="url" id="sheetUrl" placeholder="Paste the Google Sheet link" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost btn-sm" id="sheetSyncBtn" style="flex:1;">Sync now</button>
+      <button class="btn btn-ghost btn-sm" id="sheetRemoveBtn" style="flex:1;">Remove link</button>
+    </div>
+    <div id="sheetStatus"></div>
+    <div class="hint">Projects in the sheet are added to the list above (marked “Sheet”) and update automatically when the app opens. Row 1 = headers: Project number · Project name · Project Manager · Nickname (columns A–D). Share the sheet as “Anyone with the link can view”, or use File → Share → Publish to web. To change a shared project, edit the sheet. Your miles, tolls and photos stay on this device only.</div>
   </div>
   </div>
 
@@ -1949,7 +1966,7 @@ function renderProjects(){
     const sub = [reg[n].name, fmtPM(reg[n])].filter(Boolean).join(' · ') || '—';
     const days = projectDayCount(n);
     return `<div class="history-item proj-item" data-proj="${escHtml(n)}">
-      <div class="d"><span class="num">${escHtml(n)}</span><span class="dist">${escHtml(sub)}${days ? ' · '+days+(days>1?' days':' day') : ''}</span></div>
+      <div class="d"><span class="num">${escHtml(n)}</span>${reg[n].src === 'sheet' ? '<span class="src-tag">Sheet</span>' : ''}<span class="dist">${escHtml(sub)}${days ? ' · '+days+(days>1?' days':' day') : ''}</span></div>
       <div class="actions">
         <button class="icon-btn" data-pedit="${escHtml(n)}">Edit</button>
         <button class="icon-btn del" data-pdel="${escHtml(n)}">Delete</button>
@@ -2065,6 +2082,152 @@ document.getElementById('pdSave').addEventListener('click', ()=>{
   renderProjects();
   closeDialogSmooth(document.getElementById('projDlg'));
 });
+
+// ---------- shared project list (Google Sheet) ----------
+// รายชื่อโปรเจกต์กลางอยู่ใน Google Sheet (ทุกคนอ่านได้) — ดึงมารวมกับรายชื่อในเครื่อง
+// โปรเจกต์ที่มาจาก Sheet มี src:'sheet' — ถ้าลบออกจาก Sheet ก็ลบออกจากเครื่องตอนซิงก์ครั้งถัดไป
+// ข้อมูลไมล์/ทางด่วน/รูป ไม่ถูกส่งไปไหน ยังอยู่ในเครื่องเหมือนเดิม
+const SHEET_AUTO_SYNC_MS = 30*60*1000;
+function sheetCsvUrl(link){
+  let u;
+  try{ u = new URL(String(link||'').trim()); }catch(e){ return ''; }
+  if(u.hostname !== 'docs.google.com') return '';
+  const gid = u.searchParams.get('gid') || (u.hash.match(/gid=(\d+)/) || [])[1] || '';
+  // ลิงก์ Publish to web: /spreadsheets/d/e/<id>/pubhtml หรือ /pub
+  const pub = u.pathname.match(/^\/spreadsheets\/d\/e\/([^/]+)\/pub/);
+  if(pub) return `https://docs.google.com/spreadsheets/d/e/${pub[1]}/pub?output=csv${gid ? '&single=true&gid='+encodeURIComponent(gid) : ''}`;
+  // ลิงก์ปกติ (แชร์แบบ Anyone with the link): /spreadsheets/d/<id>/edit
+  const m = u.pathname.match(/^\/spreadsheets\/d\/([^/]+)/);
+  if(m) return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv&headers=1${gid ? '&gid='+encodeURIComponent(gid) : ''}`;
+  return '';
+}
+function parseCsv(text){
+  const rows = []; let row = [], f = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for(let i=0; i<text.length; i++){
+    const c = text[i];
+    if(q){
+      if(c === '"'){ if(text[i+1] === '"'){ f += '"'; i++; } else q = false; }
+      else f += c;
+    }
+    else if(c === '"') q = true;
+    else if(c === ','){ row.push(f); f = ''; }
+    else if(c === '\n' || c === '\r'){
+      if(c === '\r' && text[i+1] === '\n') i++;
+      row.push(f); rows.push(row); row = []; f = '';
+    }
+    else f += c;
+  }
+  if(f !== '' || row.length){ row.push(f); rows.push(row); }
+  return rows;
+}
+// หาคอลัมน์จากหัวตาราง (แถวที่ 1) — ไม่เจอให้ใช้ A–D ตามลำดับ
+function sheetColumns(header){
+  const h = header.map(v=>String(v||'').toLowerCase().replace(/[^a-z0-9฀-๿]/g, ''));
+  const find = keys=>h.findIndex(v=>keys.includes(v));
+  const col = {
+    number: find(['projectnumber','projectno','projno','projectcode','number','no','เลขโปรเจกต์','เลขโปรเจค']),
+    name: find(['projectname','name','ชื่อโปรเจกต์','ชื่อโปรเจค']),
+    manager: find(['projectmanager','manager','pm']),
+    nickname: find(['nickname','ชื่อเล่น']),
+  };
+  if(col.number < 0) return { number:0, name:1, manager:2, nickname:3 };
+  return col;
+}
+function setSheetStatus(text, isErr){
+  const el = document.getElementById('sheetStatus');
+  el.textContent = text || '';
+  el.classList.toggle('err', !!isErr);
+}
+function fmtSyncTime(ts){
+  const d = new Date(ts), pad = v=>String(v).padStart(2,'0');
+  return `${fmtDateTH(d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()))} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function showSheetInfo(){
+  const cfg = db.projectSheet;
+  document.getElementById('sheetUrl').value = cfg && cfg.url || '';
+  if(!cfg || !cfg.url){ setSheetStatus(''); return; }
+  if(cfg.error) setSheetStatus(cfg.error, true);
+  else if(cfg.lastSync) setSheetStatus(`Last synced ${fmtSyncTime(cfg.lastSync)} · ${cfg.count} project${cfg.count === 1 ? '' : 's'}`);
+  else setSheetStatus('Not synced yet');
+}
+let _sheetSyncing = null;
+function syncProjectSheet(){
+  if(_sheetSyncing) return _sheetSyncing;
+  _sheetSyncing = (async ()=>{
+    const cfg = db.projectSheet;
+    if(!cfg || !cfg.url) return false;
+    const url = sheetCsvUrl(cfg.url);
+    try{
+      if(!url) throw new Error('This is not a Google Sheet link.');
+      let res;
+      try{ res = await fetch(url, { cache:'no-store' }); }
+      catch(e){ throw new Error('Could not reach Google Sheets. Check the internet connection, and that the sheet is shared as “Anyone with the link can view”.'); }
+      if(!res.ok) throw new Error(`Google Sheets returned an error (${res.status}). Check that the sheet is shared as “Anyone with the link can view”.`);
+      const text = await res.text();
+      if(/^\s*</.test(text)) throw new Error('The sheet is not shared. Set it to “Anyone with the link can view”, or publish it to the web.');
+      const rows = parseCsv(text);
+      const col = sheetColumns(rows[0] || []);
+      const cell = (r, k)=>col[k] >= 0 ? String(r[col[k]] ?? '').trim() : '';
+      const incoming = {};
+      rows.slice(1).forEach(r=>{
+        const n = normProjNumber(cell(r, 'number'));
+        if(n) incoming[n] = { name:cell(r, 'name'), manager:cell(r, 'manager'), nickname:cell(r, 'nickname'), src:'sheet' };
+      });
+      const nums = Object.keys(incoming);
+      // Sheet ว่าง = น่าจะดึงผิดแผ่น/ผิดลิงก์ — ไม่ลบรายชื่อในเครื่องทิ้ง
+      if(!nums.length) throw new Error('No projects found. Put project numbers in column A (row 1 = headers).');
+      const reg = projectRegistry();
+      Object.keys(reg).forEach(n=>{ if(reg[n].src === 'sheet' && !incoming[n]) delete reg[n]; });
+      nums.forEach(n=>{ reg[n] = incoming[n]; });
+      // ชื่อ/PM/ชื่อเล่นผูกกับเลขโปรเจกต์ — วันที่ใช้โปรเจกต์นั้นอัปเดตตาม (เหมือนแก้ในหน้า Project)
+      allRecs().forEach(r=>{
+        const info = r.project && incoming[r.project.number];
+        if(info) r.project = { number:r.project.number, name:info.name, manager:info.manager, nickname:info.nickname };
+      });
+      cfg.lastSync = Date.now(); cfg.count = nums.length; delete cfg.error;
+      saveDB();
+      loadDayIntoForm();
+      return true;
+    }catch(e){
+      console.error('sheet sync failed', e);
+      cfg.error = e.message || 'Sync failed.';
+      saveDB();
+      return false;
+    }finally{
+      if(document.getElementById('tabProject').style.display !== 'none') renderProjects();
+      showSheetInfo();
+    }
+  })().finally(()=>{ _sheetSyncing = null; });
+  return _sheetSyncing;
+}
+function autoSyncProjectSheet(){
+  const cfg = db.projectSheet;
+  if(!cfg || !cfg.url || navigator.onLine === false) return;
+  if(cfg.lastSync && Date.now() - cfg.lastSync < SHEET_AUTO_SYNC_MS && !cfg.error) return;
+  syncProjectSheet();
+}
+document.getElementById('sheetSyncBtn').addEventListener('click', async ()=>{
+  const link = document.getElementById('sheetUrl').value.trim();
+  if(!link){ setSheetStatus('Paste the Google Sheet link first.', true); return; }
+  if(!sheetCsvUrl(link)){ setSheetStatus('This is not a Google Sheet link.', true); return; }
+  if(!db.projectSheet || db.projectSheet.url !== link) db.projectSheet = { url:link };
+  const btn = document.getElementById('sheetSyncBtn');
+  btn.disabled = true; setSheetStatus('Syncing…');
+  await syncProjectSheet();
+  btn.disabled = false;
+});
+document.getElementById('sheetRemoveBtn').addEventListener('click', ()=>{
+  if(!db.projectSheet){ document.getElementById('sheetUrl').value = ''; return; }
+  if(!confirm('Remove the Google Sheet link? Projects from the sheet are removed from this list. Days already saved keep their project info.')) return;
+  const reg = projectRegistry();
+  Object.keys(reg).forEach(n=>{ if(reg[n].src === 'sheet') delete reg[n]; });
+  delete db.projectSheet;
+  saveDB();
+  renderProjects();
+  showSheetInfo();
+});
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') autoSyncProjectSheet(); });
 
 // ---------- history ----------
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -3252,7 +3415,7 @@ function switchTab(name){
   if(name === 'today'){ openToday(); return; }
   if(editingPast){ editingPast = false; currentDate = todayStr(); }
   if(name === 'history') goView('history', ()=>{ renderHistory(); refreshMonthSelect(); });
-  else goView('project', renderProjects);
+  else goView('project', ()=>{ renderProjects(); showSheetInfo(); });
 }
 document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
 document.getElementById('tabBtnProject').addEventListener('click', ()=>switchTab('project'));
@@ -3262,6 +3425,8 @@ loadDayIntoForm();
 renderHistory();
 refreshMonthSelect();
 initPhotoStore();
+showSheetInfo();
+autoSyncProjectSheet();
 </script>
 </body>
 </html>
