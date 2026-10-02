@@ -57,7 +57,7 @@
   html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--sans); text-rendering:optimizeLegibility;
     -webkit-font-smoothing:antialiased; letter-spacing:-0.01em; }
   body{
-    padding-bottom:calc(40px + env(safe-area-inset-bottom));
+    padding-bottom:calc(96px + env(safe-area-inset-bottom));
     padding-top:env(safe-area-inset-top);
   }
   .wrap{ max-width:520px; margin:0 auto; padding:12px 16px 0; }
@@ -81,22 +81,6 @@
   .theme-toggle input:checked + .switch{ background:var(--green); }
   .theme-toggle input:checked + .switch::after{ transform:translateX(20px); }
 
-  /* segmented control */
-  .tabbar{ display:flex; gap:2px; background:var(--fill); border-radius:9px; padding:2px; margin-bottom:4px; }
-  .tab-btn{
-    flex:1; padding:7px 10px; border:none; border-radius:7px; background:transparent; color:var(--text);
-    font-family:var(--sans); font-size:13px; font-weight:500; cursor:pointer; transition:background .2s, box-shadow .2s;
-  }
-  /* segmented control: แถบขาวเลื่อนไปมาแบบ iOS */
-  .tabbar{ position:relative; }
-  .tab-btn{ position:relative; z-index:1; }
-  .tab-btn.active{ font-weight:600; }
-  .tab-indicator{ position:absolute; top:2px; bottom:2px; left:2px; width:calc(50% - 3px); border-radius:7px;
-    background:var(--panel); box-shadow:0 3px 8px rgba(0,0,0,0.12), 0 3px 1px rgba(0,0,0,0.04);
-    transition:transform .5s cubic-bezier(.25,.8,.25,1), background-color .3s ease; }
-  .tabbar.on-history .tab-indicator{ transform:translateX(calc(100% + 2px)); }
-  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tab-indicator{ background:#636366; } }
-  :root[data-theme="dark"] .tab-indicator{ background:#636366; }
 
   /* เปลี่ยนหน้าแบบเลื่อน+จางเข้า */
   @keyframes viewIn{ from{ opacity:0; transform:translateX(var(--dx, 0px)) translateY(var(--dy, 0px)); } to{ opacity:1; transform:none; } }
@@ -119,7 +103,7 @@
   .icon-btn.del.pressable{ --glow:color-mix(in srgb, var(--red) 40%, transparent); --glow-flat:color-mix(in srgb, var(--red) 15%, transparent); }
   .cal-day.sel.pressable{ --glow:rgba(255,255,255,.5); --glow-flat:rgba(255,255,255,.2); }
   @media (prefers-reduced-motion: reduce){ .pressable, .pressable::after{ transition:none !important; } }
-  @media (prefers-reduced-motion: reduce){ .view-in, .tab-indicator, dialog[open], dialog.closing{ animation:none !important; transition:none !important; } }
+  @media (prefers-reduced-motion: reduce){ .view-in, dialog[open], dialog.closing{ animation:none !important; transition:none !important; } }
 
   .datebar{ display:flex; align-items:center; gap:8px; margin:4px 0 12px; }
   .day-nav{ width:36px; height:36px; border-radius:50%; border:none; background:var(--fill); color:var(--accent);
@@ -170,6 +154,18 @@
   .past-banner button{ border:none; background:var(--accent); color:#fff; font-family:var(--sans); font-size:14px; font-weight:600;
     padding:7px 14px; border-radius:16px; cursor:pointer; flex-shrink:0; }
 
+  /* แถบเมนูด้านล่างแบบ iPhone */
+  .tabbar{ position:fixed; left:0; right:0; bottom:0; z-index:50;
+    background:color-mix(in srgb, var(--panel) 92%, transparent);
+    -webkit-backdrop-filter:saturate(180%) blur(20px); backdrop-filter:saturate(180%) blur(20px);
+    border-top:0.5px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
+  .tabbar-inner{ max-width:520px; margin:0 auto; display:flex; }
+  .tab-btn{ flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 0 5px;
+    background:none; border:none; color:var(--muted); font-family:var(--sans); font-size:10px; font-weight:500;
+    letter-spacing:.01em; cursor:pointer; transition:color .2s ease; }
+  .tab-btn svg{ width:25px; height:25px; transition:transform .25s cubic-bezier(.3,.7,.4,1.4); }
+  .tab-btn.active{ color:var(--accent); }
+  .tab-btn:active svg{ transform:scale(.88); }
   .add-past{ position:relative; overflow:hidden; margin-bottom:14px; }
   .add-past svg{ width:18px; height:18px; }
 
@@ -277,6 +273,21 @@
     color:var(--text); font-family:var(--sans); font-size:16px; padding:10px 12px;
   }
   .proj-field input::placeholder{ color:var(--muted); }
+  .proj-input{ position:relative; }
+  .proj-field .proj-input input{ padding-right:40px; }
+  .proj-clear{ position:absolute; top:50%; right:6px; transform:translateY(-50%); width:30px; height:30px;
+    display:none; align-items:center; justify-content:center; background:none; border:none; padding:0;
+    color:var(--muted); cursor:pointer; opacity:.85; }
+  .proj-clear.show{ display:flex; }
+  .proj-clear svg{ width:18px; height:18px; }
+  #projDlg{ max-width:360px; width:90vw; }
+  #projDlg .dlg-body{ text-align:left; }
+  #projDlg .dlg-body h3{ margin-bottom:14px; }
+  #projDlg .btn-row .btn{ flex:1; margin-top:14px; }
+  #pdNumber{ text-transform:uppercase; letter-spacing:.02em; }
+  #pdNumber::placeholder{ text-transform:none; letter-spacing:0; }
+  .pd-err{ font-size:13px; color:var(--red); min-height:16px; margin-top:6px; }
+  .proj-item .d .num{ font-weight:600; letter-spacing:.01em; }
   #projNumber{ text-transform:uppercase; letter-spacing:.02em; }
   #projNumber::placeholder{ text-transform:none; letter-spacing:0; }
   #projDd{ right:0; }
@@ -354,12 +365,28 @@
 </style>
 </head>
 <body>
+<nav class="tabbar" id="tabbar" aria-label="Menu">
+  <div class="tabbar-inner">
+    <button class="tab-btn active" id="tabBtnToday" data-tab="today">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5 12 3.8l8.5 6.7"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-5.5h4V20"/></svg>
+      Home
+    </button>
+    <button class="tab-btn" id="tabBtnProject" data-tab="project">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2.2h8A1.5 1.5 0 0 1 20.5 9.7v8.8A1.5 1.5 0 0 1 19 20H5a1.5 1.5 0 0 1-1.5-1.5z"/></svg>
+      Project
+    </button>
+    <button class="tab-btn" id="tabBtnHistory" data-tab="history">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+      History
+    </button>
+  </div>
+</nav>
 <div class="wrap">
 
   <header class="top">
     <div>
       <div class="odo" id="headerDate"></div>
-      <h1>Mileage Log</h1>
+      <h1 id="pageTitle">Mileage Log</h1>
     </div>
     <label class="theme-toggle" title="Dark mode">
       <span class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
@@ -368,11 +395,6 @@
     </label>
   </header>
 
-  <div class="tabbar" id="tabbar">
-    <span class="tab-indicator"></span>
-    <button class="tab-btn active" id="tabBtnToday" data-tab="today">Home</button>
-    <button class="tab-btn" id="tabBtnHistory" data-tab="history">History</button>
-  </div>
 
   <div id="tabToday" style="padding-top:18px;">
   <div class="datebar" id="dateBar" style="display:none;">
@@ -393,18 +415,25 @@
     <h2>Project information</h2>
     <div class="proj-field">
       <label for="projNumber">Project number</label>
-      <div class="place-search">
+      <div class="place-search proj-input">
         <input type="text" id="projNumber" placeholder="Project number" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next">
+        <button type="button" class="proj-clear" data-clear-for="projNumber" aria-label="Clear project number"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
         <div class="place-dd" id="projDd"></div>
       </div>
     </div>
     <div class="proj-field">
       <label for="projName">Project name</label>
-      <input type="text" id="projName" placeholder="Project name" autocomplete="off" enterkeyhint="next">
+      <div class="proj-input">
+        <input type="text" id="projName" placeholder="Project name" autocomplete="off" enterkeyhint="next">
+        <button type="button" class="proj-clear" data-clear-for="projName" aria-label="Clear project name"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+      </div>
     </div>
     <div class="proj-field">
       <label for="projManager">Project Manager</label>
-      <input type="text" id="projManager" placeholder="Project Manager" autocomplete="off" enterkeyhint="done">
+      <div class="proj-input">
+        <input type="text" id="projManager" placeholder="Project Manager" autocomplete="off" enterkeyhint="done">
+        <button type="button" class="proj-clear" data-clear-for="projManager" aria-label="Clear project manager"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+      </div>
     </div>
   </div>
 
@@ -471,6 +500,18 @@
   <button class="btn btn-primary" id="saveTodayBtn" style="margin-bottom:24px;">Save</button>
   </div>
 
+  <div id="tabProject" style="display:none; padding-top:18px;">
+  <div class="card">
+    <h2>Saved projects</h2>
+    <button class="btn btn-ghost add-past" id="addProjectBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Add project
+    </button>
+    <div id="projectList"></div>
+    <div class="hint">Projects here appear in the Project number list on Home. Tap a project to edit it — days that use it are updated too.</div>
+  </div>
+  </div>
+
   <div id="tabHistory" style="display:none; padding-top:18px;">
   <!-- HISTORY -->
   <div class="card">
@@ -514,6 +555,29 @@
     <h3 id="msgTitle">Notice</h3>
     <p id="msgBody"></p>
     <button class="btn btn-primary" id="msgOk">OK</button>
+  </div>
+</dialog>
+
+<dialog id="projDlg">
+  <div class="dlg-body">
+    <h3 id="pdTitle">Add project</h3>
+    <div class="proj-field">
+      <label for="pdNumber">Project number</label>
+      <input type="text" id="pdNumber" placeholder="Project number" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false">
+    </div>
+    <div class="proj-field">
+      <label for="pdName">Project name</label>
+      <input type="text" id="pdName" placeholder="Project name" autocomplete="off">
+    </div>
+    <div class="proj-field">
+      <label for="pdManager">Project Manager</label>
+      <input type="text" id="pdManager" placeholder="Project Manager" autocomplete="off">
+    </div>
+    <div class="pd-err" id="pdErr"></div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" id="pdCancel">Cancel</button>
+      <button class="btn btn-primary" id="pdSave">Save</button>
+    </div>
   </div>
 </dialog>
 
@@ -817,7 +881,7 @@ function openToday(){
   showForm('today');
 }
 // ---------- iPhone-style press glow ----------
-const PRESSABLE = '.btn, .icon-btn, .day-nav, .date-pill, .slot-icon-btn, .cal-nav button, .cal-day, .tab-btn, .photo-btn, .past-banner button, .slot-clear';
+const PRESSABLE = '.btn, .icon-btn, .day-nav, .date-pill, .slot-icon-btn, .cal-nav button, .cal-day, .photo-btn, .past-banner button, .slot-clear';
 (function initPressGlow(){
   let active = null, downAt = 0;
   const release = ()=>{
@@ -851,8 +915,10 @@ const PRESSABLE = '.btn, .icon-btn, .day-nav, .date-pill, .slot-icon-btn, .cal-n
 function setActiveTab(name){
   document.getElementById('tabBtnToday').classList.toggle('active', name==='today');
   document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
-  document.getElementById('tabbar').classList.toggle('on-history', name==='history');
+  document.getElementById('tabBtnProject').classList.toggle('active', name==='project');
+  document.getElementById('pageTitle').textContent = name==='history' ? 'History' : name==='project' ? 'Projects' : 'Mileage Log';
 }
+
 // แสดง el แบบเลื่อน/จางเข้า (dx: + มาจากขวา, - มาจากซ้าย; dy: เลื่อนขึ้นเล็กน้อย)
 function animateIn(el, dx, dy){
   el.classList.remove('view-in');
@@ -880,17 +946,43 @@ function swapView(outEl, inEl, dx, beforeShow){
   outEl.classList.add('view-out');
   setTimeout(show, 320);
 }
+// หน้าในแอป เรียงตามแถบเมนูด้านล่าง (ใช้กำหนดทิศทางการเลื่อน)
+const VIEWS = ['today','project','history'];
+const VIEW_EL = { today:'tabToday', project:'tabProject', history:'tabHistory' };
+let activeView = 'today';
+function hideViewsExcept(...keep){
+  VIEWS.forEach(v=>{
+    if(keep.includes(v)) return;
+    const el = document.getElementById(VIEW_EL[v]);
+    el.classList.remove('view-out');
+    el.style.display = 'none';
+  });
+}
+function goView(name, beforeShow){
+  const from = activeView;
+  activeView = name;
+  setActiveTab(name);
+  hideViewsExcept(from, name);
+  if(from === name){
+    _viewSwapToken++;
+    const el = document.getElementById(VIEW_EL[name]);
+    el.classList.remove('view-out'); el.style.display = '';
+    if(beforeShow) beforeShow();
+    return;
+  }
+  const dx = VIEWS.indexOf(name) > VIEWS.indexOf(from) ? 28 : -28;
+  swapView(document.getElementById(VIEW_EL[from]), document.getElementById(VIEW_EL[name]), dx, beforeShow);
+}
 function showForm(activeTab){
   const today = document.getElementById('tabToday');
-  const wasHidden = today.style.display === 'none';
   slotSearchOpen = null;
   document.getElementById('gpsLive').textContent = '';
   loadDayIntoForm();
   setActiveTab(activeTab);
-  if(wasHidden){ swapView(document.getElementById('tabHistory'), today, -28); return; }
+  if(activeView !== 'today'){ goView('today'); return; }
   _viewSwapToken++; // ยกเลิกการสลับหน้าที่ค้างอยู่ (กดสลับแท็บเร็วๆ)
   today.classList.remove('view-out');
-  document.getElementById('tabHistory').style.display = 'none';
+  hideViewsExcept('today');
   window.scrollTo({top:0, behavior:'auto'});
   animateIn(today, 0, 10);
 }
@@ -1011,6 +1103,7 @@ function loadDayIntoForm(){
   document.getElementById('projNumber').value = pj.number || '';
   document.getElementById('projName').value = pj.name || '';
   document.getElementById('projManager').value = pj.manager || '';
+  syncProjClears();
   document.getElementById('startKm').value = rec.startKm ?? '';
   document.getElementById('endKm').value = rec.endKm ?? '';
   setPhotoPreview('start', rec.startPhoto);
@@ -1693,6 +1786,12 @@ function rememberProject(p){
   if(!p || !p.number) return;
   projectRegistry()[p.number] = { name:p.name || '', manager:p.manager || '' };
 }
+// แสดงปุ่ม ⓧ เฉพาะช่องที่มีข้อความ
+function syncProjClears(){
+  document.querySelectorAll('.proj-clear').forEach(b=>{
+    b.classList.toggle('show', document.getElementById(b.dataset.clearFor).value !== '');
+  });
+}
 function setProjectField(field, value){
   const rec = curRec();
   const p = { number:'', name:'', manager:'', ...(rec.project || {}) };
@@ -1706,6 +1805,7 @@ function fillProject(number){
   document.getElementById('projNumber').value = number;
   document.getElementById('projName').value = info.name;
   document.getElementById('projManager').value = info.manager;
+  syncProjClears();
   setProjectField('number', number);
   setProjectField('name', info.name);
   setProjectField('manager', info.manager);
@@ -1791,9 +1891,88 @@ function fillProject(number){
   });
   nameIn.addEventListener('input', ()=>setProjectField('name', nameIn.value));
   pmIn.addEventListener('input', ()=>setProjectField('manager', pmIn.value));
+  [numIn, nameIn, pmIn].forEach(inp=>inp.addEventListener('input', syncProjClears));
+  document.querySelectorAll('.proj-clear').forEach(b=>{
+    b.addEventListener('mousedown', e=>e.preventDefault()); // ไม่ให้ช่องเสีย focus (คีย์บอร์ดไม่หุบ)
+    b.addEventListener('click', ()=>{
+      const inp = document.getElementById(b.dataset.clearFor);
+      inp.value = '';
+      if(inp === numIn) numAtFocus = '';
+      inp.dispatchEvent(new Event('input', {bubbles:true}));
+      inp.focus();
+    });
+  });
   nameIn.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); pmIn.focus(); } });
   pmIn.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); pmIn.blur(); } });
 })();
+
+// ---------- project page ----------
+function projectDayCount(num){ return dataDates().filter(d=>db.days[d].project && db.days[d].project.number === num).length; }
+function renderProjects(){
+  const list = document.getElementById('projectList');
+  const reg = projectRegistry();
+  const nums = Object.keys(reg).sort((a,b)=>a.localeCompare(b));
+  if(!nums.length){ list.innerHTML = '<div class="empty">No projects yet</div>'; return; }
+  list.innerHTML = nums.map(n=>{
+    const sub = [reg[n].name, reg[n].manager].filter(Boolean).join(' · ') || '—';
+    const days = projectDayCount(n);
+    return `<div class="history-item proj-item" data-proj="${escHtml(n)}">
+      <div class="d"><span class="num">${escHtml(n)}</span><span class="dist">${escHtml(sub)}${days ? ' · '+days+(days>1?' days':' day') : ''}</span></div>
+      <div class="actions">
+        <button class="icon-btn" data-pedit="${escHtml(n)}">Edit</button>
+        <button class="icon-btn del" data-pdel="${escHtml(n)}">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.proj-item').forEach(row=>{
+    row.onclick = e=>{ if(!e.target.closest('[data-pdel]')) openProjDlg(row.dataset.proj); };
+  });
+  list.querySelectorAll('[data-pdel]').forEach(b=>b.onclick = e=>{
+    e.stopPropagation();
+    const n = b.dataset.pdel;
+    if(confirm(`Delete project ${n}? Days already saved keep their project info.`)){
+      delete projectRegistry()[n]; saveDB(); renderProjects();
+    }
+  });
+}
+let _editingProj = null;
+function openProjDlg(num){
+  _editingProj = num || null;
+  const info = num ? projectRegistry()[num] : null;
+  document.getElementById('pdTitle').textContent = num ? 'Edit project' : 'Add project';
+  document.getElementById('pdNumber').value = num || '';
+  document.getElementById('pdName').value = info ? info.name : '';
+  document.getElementById('pdManager').value = info ? info.manager : '';
+  document.getElementById('pdErr').textContent = '';
+  const d = document.getElementById('projDlg');
+  d.classList.remove('closing');
+  d.showModal();
+}
+document.getElementById('addProjectBtn').addEventListener('click', ()=>openProjDlg(null));
+document.getElementById('pdNumber').addEventListener('input', e=>{
+  const inp = e.target, pos = inp.selectionStart, up = inp.value.toUpperCase();
+  if(up !== inp.value){ inp.value = up; try{ inp.setSelectionRange(pos, pos); }catch(_){} }
+});
+document.getElementById('pdCancel').addEventListener('click', ()=>closeDialogSmooth(document.getElementById('projDlg')));
+document.getElementById('pdSave').addEventListener('click', ()=>{
+  const n = normProjNumber(document.getElementById('pdNumber').value);
+  const name = document.getElementById('pdName').value.trim();
+  const manager = document.getElementById('pdManager').value.trim();
+  const err = document.getElementById('pdErr');
+  if(!n){ err.textContent = 'Enter a project number.'; return; }
+  const reg = projectRegistry();
+  if(n !== _editingProj && reg[n]){ err.textContent = `${n} already exists.`; return; }
+  if(_editingProj && _editingProj !== n) delete reg[_editingProj];
+  reg[n] = { name, manager };
+  // ชื่อและ PM ผูกกับเลขโปรเจกต์ — อัปเดตทุกวันที่ใช้โปรเจกต์นี้ให้ตรงกัน
+  if(_editingProj){
+    allRecs().forEach(r=>{ if(r.project && r.project.number === _editingProj) r.project = { number:n, name, manager }; });
+  }
+  saveDB();
+  loadDayIntoForm();
+  renderProjects();
+  closeDialogSmooth(document.getElementById('projDlg'));
+});
 
 // ---------- history ----------
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -2673,18 +2852,11 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
 function switchTab(name){
   if(name === 'today'){ openToday(); return; }
   if(editingPast){ editingPast = false; currentDate = todayStr(); }
-  const hist = document.getElementById('tabHistory');
-  const wasHidden = hist.style.display === 'none';
-  setActiveTab('history');
-  if(!wasHidden){
-    _viewSwapToken++;
-    hist.classList.remove('view-out');
-    document.getElementById('tabToday').style.display = 'none';
-    return;
-  }
-  swapView(document.getElementById('tabToday'), hist, 28, ()=>{ renderHistory(); refreshMonthSelect(); });
+  if(name === 'history') goView('history', ()=>{ renderHistory(); refreshMonthSelect(); });
+  else goView('project', renderProjects);
 }
 document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
+document.getElementById('tabBtnProject').addEventListener('click', ()=>switchTab('project'));
 document.getElementById('tabBtnHistory').addEventListener('click', ()=>switchTab('history'));
 
 loadDayIntoForm();
