@@ -547,16 +547,9 @@
   </div>
   <div class="card">
     <h2>Shared project list (Google Sheet)</h2>
-    <div class="proj-field">
-      <label for="sheetUrl">Google Sheet link</label>
-      <input type="url" id="sheetUrl" placeholder="Paste the Google Sheet link" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-    </div>
-    <div class="btn-row">
-      <button class="btn btn-ghost btn-sm" id="sheetSyncBtn" style="flex:1;">Sync now</button>
-      <button class="btn btn-ghost btn-sm" id="sheetRemoveBtn" style="flex:1;">Remove link</button>
-    </div>
+    <button class="btn btn-ghost btn-sm" id="sheetSyncBtn" style="width:100%;">Sync now</button>
     <div id="sheetStatus"></div>
-    <div class="hint">Projects in the sheet are added to the list above (marked “Sheet”) and update automatically when the app opens. Row 1 = headers: Project number · Project name · Project Manager · Nickname (columns A–D). Share the sheet as “Anyone with the link can view”, or use File → Share → Publish to web. To change a shared project, edit the sheet. Your miles, tolls and photos stay on this device only.</div>
+    <div class="hint" id="sheetHint"></div>
   </div>
   </div>
 
@@ -1979,8 +1972,10 @@ function renderProjects(){
   list.querySelectorAll('[data-pdel]').forEach(b=>b.onclick = e=>{
     e.stopPropagation();
     const n = b.dataset.pdel;
-    if(confirm(`Delete project ${n}? Days already saved keep their project info.`)){
+    const shared = SHEET_API_URL ? ' It is also removed from the shared Google Sheet for everyone.' : '';
+    if(confirm(`Delete project ${n}? Days already saved keep their project info.${shared}`)){
       delete projectRegistry()[n]; saveDB(); renderProjects();
+      queueSheetOp({ action:'delete', number:n });
     }
   });
 }
@@ -2073,30 +2068,34 @@ document.getElementById('pdSave').addEventListener('click', ()=>{
   const reg = projectRegistry();
   if(n !== _editingProj && reg[n]){ err.textContent = `${n} already exists.`; return; }
   if(_editingProj && _editingProj !== n) delete reg[_editingProj];
-  reg[n] = { name, manager, nickname };
+  reg[n] = SHEET_API_URL ? { name, manager, nickname, src:'sheet' } : { name, manager, nickname };
   // ชื่อ/PM/ชื่อเล่น ผูกกับเลขโปรเจกต์ — อัปเดตทุกวันที่ใช้โปรเจกต์นี้ให้ตรงกัน
   const matchNum = _editingProj || n;
+  const oldNum = _editingProj && _editingProj !== n ? _editingProj : '';
   allRecs().forEach(r=>{ if(r.project && r.project.number === matchNum) r.project = { number:n, name, manager, nickname }; });
   saveDB();
   loadDayIntoForm();
   renderProjects();
   closeDialogSmooth(document.getElementById('projDlg'));
+  queueSheetOp({ action:'upsert', number:n, oldNumber:oldNum, name, manager, nickname });
 });
 
 // ---------- shared project list (Google Sheet) ----------
-// รายชื่อโปรเจกต์กลางอยู่ใน Google Sheet (ทุกคนอ่านได้) — ดึงมารวมกับรายชื่อในเครื่อง
+// รายชื่อโปรเจกต์กลางอยู่ใน Google Sheet ของทีม — ดึงมารวมกับรายชื่อในเครื่อง
+// SHEET_API_URL = Google Apps Script web app (apps-script/Code.gs) ใช้ทั้งอ่านและเขียน (เพิ่ม/แก้/ลบ)
+// ถ้ายังไม่มี SHEET_API_URL จะอ่านอย่างเดียวจาก SHARED_SHEET_URL (ต้องแชร์แบบ Anyone with the link can view)
 // โปรเจกต์ที่มาจาก Sheet มี src:'sheet' — ถ้าลบออกจาก Sheet ก็ลบออกจากเครื่องตอนซิงก์ครั้งถัดไป
 // ข้อมูลไมล์/ทางด่วน/รูป ไม่ถูกส่งไปไหน ยังอยู่ในเครื่องเหมือนเดิม
+const SHARED_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1MQJ41btHVZE2Y0qw3H-esGuLgMYOcFl7M8PVcp52Iu8/edit';
+const SHEET_API_URL = '';
 const SHEET_AUTO_SYNC_MS = 30*60*1000;
 function sheetCsvUrl(link){
   let u;
   try{ u = new URL(String(link||'').trim()); }catch(e){ return ''; }
   if(u.hostname !== 'docs.google.com') return '';
   const gid = u.searchParams.get('gid') || (u.hash.match(/gid=(\d+)/) || [])[1] || '';
-  // ลิงก์ Publish to web: /spreadsheets/d/e/<id>/pubhtml หรือ /pub
   const pub = u.pathname.match(/^\/spreadsheets\/d\/e\/([^/]+)\/pub/);
   if(pub) return `https://docs.google.com/spreadsheets/d/e/${pub[1]}/pub?output=csv${gid ? '&single=true&gid='+encodeURIComponent(gid) : ''}`;
-  // ลิงก์ปกติ (แชร์แบบ Anyone with the link): /spreadsheets/d/<id>/edit
   const m = u.pathname.match(/^\/spreadsheets\/d\/([^/]+)/);
   if(m) return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv&headers=1${gid ? '&gid='+encodeURIComponent(gid) : ''}`;
   return '';
@@ -2134,6 +2133,62 @@ function sheetColumns(header){
   if(col.number < 0) return { number:0, name:1, manager:2, nickname:3 };
   return col;
 }
+async function fetchSheetProjects(){
+  const incoming = {};
+  const add = p=>{
+    const n = normProjNumber(p.number);
+    if(n) incoming[n] = { name:String(p.name||'').trim(), manager:String(p.manager||'').trim(), nickname:String(p.nickname||'').trim(), src:'sheet' };
+  };
+  let res;
+  if(SHEET_API_URL){
+    try{ res = await fetch(SHEET_API_URL, { cache:'no-store' }); }
+    catch(e){ throw new Error('Could not reach Google Sheets. Check the internet connection.'); }
+    if(!res.ok) throw new Error(`Google Sheets returned an error (${res.status}).`);
+    let data;
+    try{ data = await res.json(); }catch(e){ throw new Error('Unexpected reply from Google Sheets. Check the Apps Script deployment (Who has access: Anyone).'); }
+    if(!data.ok) throw new Error(data.error || 'Google Sheets returned an error.');
+    (data.projects || []).forEach(add);
+    return incoming;
+  }
+  const url = sheetCsvUrl(SHARED_SHEET_URL);
+  try{ res = await fetch(url, { cache:'no-store' }); }
+  catch(e){ throw new Error('Could not reach Google Sheets. Check the internet connection, and that the sheet is shared as “Anyone with the link can view”.'); }
+  if(!res.ok) throw new Error(`Google Sheets returned an error (${res.status}). Check that the sheet is shared as “Anyone with the link can view”.`);
+  const text = await res.text();
+  if(/^\s*</.test(text)) throw new Error('The sheet is not shared. Set it to “Anyone with the link can view”.');
+  const rows = parseCsv(text);
+  const col = sheetColumns(rows[0] || []);
+  const cell = (r, k)=>col[k] >= 0 ? r[col[k]] : '';
+  rows.slice(1).forEach(r=>add({ number:cell(r,'number'), name:cell(r,'name'), manager:cell(r,'manager'), nickname:cell(r,'nickname') }));
+  // อ่านผ่านลิงก์แชร์แล้วว่าง = น่าจะผิดแผ่น/ผิดลิงก์ — ไม่ลบรายชื่อในเครื่องทิ้ง
+  if(!Object.keys(incoming).length) throw new Error('No projects found in the sheet. Put project numbers in column A (row 1 = headers).');
+  return incoming;
+}
+// การเพิ่ม/แก้/ลบ ที่ยังไม่ได้ส่งขึ้น Sheet (เช่น ตอนไม่มีเน็ต) — ส่งก่อนดึงข้อมูลทุกครั้ง
+function sheetQueue(){
+  if(!Array.isArray(db.sheetPending)) db.sheetPending = [];
+  return db.sheetPending;
+}
+function queueSheetOp(op){
+  if(!SHEET_API_URL) return;
+  sheetQueue().push(op);
+  saveDB();
+  syncProjectSheet();
+}
+async function flushSheetQueue(){
+  const q = sheetQueue();
+  while(q.length){
+    let res, data;
+    try{
+      // text/plain = ไม่ต้องมี preflight (Apps Script ไม่รองรับ OPTIONS)
+      res = await fetch(SHEET_API_URL, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body:JSON.stringify(q[0]) });
+      data = await res.json();
+    }catch(e){ throw new Error(`Could not update the Google Sheet (${q.length} change${q.length>1?'s':''} waiting). Will retry automatically.`); }
+    if(!data || !data.ok) throw new Error(`Google Sheet rejected a change: ${data && data.error || 'unknown error'}. ${q.length} change${q.length>1?'s':''} waiting.`);
+    q.shift();
+    saveDB();
+  }
+}
 function setSheetStatus(text, isErr){
   const el = document.getElementById('sheetStatus');
   el.textContent = text || '';
@@ -2144,54 +2199,45 @@ function fmtSyncTime(ts){
   return `${fmtDateTH(d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()))} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function showSheetInfo(){
-  const cfg = db.projectSheet;
-  document.getElementById('sheetUrl').value = cfg && cfg.url || '';
-  if(!cfg || !cfg.url){ setSheetStatus(''); return; }
-  if(cfg.error) setSheetStatus(cfg.error, true);
-  else if(cfg.lastSync) setSheetStatus(`Last synced ${fmtSyncTime(cfg.lastSync)} · ${cfg.count} project${cfg.count === 1 ? '' : 's'}`);
+  const st = db.projectSheet || {};
+  document.getElementById('sheetHint').textContent = 'Projects are shared with everyone through the team Google Sheet and update automatically when the app opens. '
+    + (SHEET_API_URL ? 'Adding, editing or deleting a project here also changes the sheet. ' : 'To add or change a shared project, edit the sheet. ')
+    + 'Your miles, tolls and photos stay on this device only.';
+  if(st.error) setSheetStatus(st.error, true);
+  else if(st.lastSync) setSheetStatus(`Last synced ${fmtSyncTime(st.lastSync)} · ${st.count} project${st.count === 1 ? '' : 's'}`);
   else setSheetStatus('Not synced yet');
 }
 let _sheetSyncing = null;
 function syncProjectSheet(){
-  if(_sheetSyncing) return _sheetSyncing;
+  if(_sheetSyncing) return _sheetSyncing.then(()=>syncProjectSheet());
   _sheetSyncing = (async ()=>{
-    const cfg = db.projectSheet;
-    if(!cfg || !cfg.url) return false;
-    const url = sheetCsvUrl(cfg.url);
+    if(!db.projectSheet || typeof db.projectSheet !== 'object') db.projectSheet = {};
+    const st = db.projectSheet;
     try{
-      if(!url) throw new Error('This is not a Google Sheet link.');
-      let res;
-      try{ res = await fetch(url, { cache:'no-store' }); }
-      catch(e){ throw new Error('Could not reach Google Sheets. Check the internet connection, and that the sheet is shared as “Anyone with the link can view”.'); }
-      if(!res.ok) throw new Error(`Google Sheets returned an error (${res.status}). Check that the sheet is shared as “Anyone with the link can view”.`);
-      const text = await res.text();
-      if(/^\s*</.test(text)) throw new Error('The sheet is not shared. Set it to “Anyone with the link can view”, or publish it to the web.');
-      const rows = parseCsv(text);
-      const col = sheetColumns(rows[0] || []);
-      const cell = (r, k)=>col[k] >= 0 ? String(r[col[k]] ?? '').trim() : '';
-      const incoming = {};
-      rows.slice(1).forEach(r=>{
-        const n = normProjNumber(cell(r, 'number'));
-        if(n) incoming[n] = { name:cell(r, 'name'), manager:cell(r, 'manager'), nickname:cell(r, 'nickname'), src:'sheet' };
-      });
-      const nums = Object.keys(incoming);
-      // Sheet ว่าง = น่าจะดึงผิดแผ่น/ผิดลิงก์ — ไม่ลบรายชื่อในเครื่องทิ้ง
-      if(!nums.length) throw new Error('No projects found. Put project numbers in column A (row 1 = headers).');
+      if(SHEET_API_URL) await flushSheetQueue();
+      const incoming = await fetchSheetProjects();
       const reg = projectRegistry();
       Object.keys(reg).forEach(n=>{ if(reg[n].src === 'sheet' && !incoming[n]) delete reg[n]; });
-      nums.forEach(n=>{ reg[n] = incoming[n]; });
+      // โปรเจกต์ที่มีแค่ในเครื่อง (สร้างก่อนเชื่อม Sheet) — ส่งขึ้น Sheet ให้คนอื่นใช้ได้ด้วย
+      const localOnly = SHEET_API_URL ? Object.keys(reg).filter(n=>!reg[n].src && !incoming[n]) : [];
+      Object.keys(incoming).forEach(n=>{ reg[n] = incoming[n]; });
       // ชื่อ/PM/ชื่อเล่นผูกกับเลขโปรเจกต์ — วันที่ใช้โปรเจกต์นั้นอัปเดตตาม (เหมือนแก้ในหน้า Project)
       allRecs().forEach(r=>{
         const info = r.project && incoming[r.project.number];
         if(info) r.project = { number:r.project.number, name:info.name, manager:info.manager, nickname:info.nickname };
       });
-      cfg.lastSync = Date.now(); cfg.count = nums.length; delete cfg.error;
+      st.lastSync = Date.now(); st.count = Object.keys(incoming).length; delete st.error;
       saveDB();
       loadDayIntoForm();
+      if(localOnly.length){
+        localOnly.forEach(n=>{ const r = reg[n]; r.src = 'sheet'; sheetQueue().push({ action:'upsert', number:n, name:r.name||'', manager:r.manager||'', nickname:r.nickname||'' }); });
+        saveDB();
+        setTimeout(syncProjectSheet, 0);
+      }
       return true;
     }catch(e){
       console.error('sheet sync failed', e);
-      cfg.error = e.message || 'Sync failed.';
+      st.error = e.message || 'Sync failed.';
       saveDB();
       return false;
     }finally{
@@ -2202,32 +2248,19 @@ function syncProjectSheet(){
   return _sheetSyncing;
 }
 function autoSyncProjectSheet(){
-  const cfg = db.projectSheet;
-  if(!cfg || !cfg.url || navigator.onLine === false) return;
-  if(cfg.lastSync && Date.now() - cfg.lastSync < SHEET_AUTO_SYNC_MS && !cfg.error) return;
+  const st = db.projectSheet || {};
+  if(navigator.onLine === false) return;
+  if(st.lastSync && Date.now() - st.lastSync < SHEET_AUTO_SYNC_MS && !st.error && !sheetQueue().length) return;
   syncProjectSheet();
 }
 document.getElementById('sheetSyncBtn').addEventListener('click', async ()=>{
-  const link = document.getElementById('sheetUrl').value.trim();
-  if(!link){ setSheetStatus('Paste the Google Sheet link first.', true); return; }
-  if(!sheetCsvUrl(link)){ setSheetStatus('This is not a Google Sheet link.', true); return; }
-  if(!db.projectSheet || db.projectSheet.url !== link) db.projectSheet = { url:link };
   const btn = document.getElementById('sheetSyncBtn');
   btn.disabled = true; setSheetStatus('Syncing…');
   await syncProjectSheet();
   btn.disabled = false;
 });
-document.getElementById('sheetRemoveBtn').addEventListener('click', ()=>{
-  if(!db.projectSheet){ document.getElementById('sheetUrl').value = ''; return; }
-  if(!confirm('Remove the Google Sheet link? Projects from the sheet are removed from this list. Days already saved keep their project info.')) return;
-  const reg = projectRegistry();
-  Object.keys(reg).forEach(n=>{ if(reg[n].src === 'sheet') delete reg[n]; });
-  delete db.projectSheet;
-  saveDB();
-  renderProjects();
-  showSheetInfo();
-});
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') autoSyncProjectSheet(); });
+window.addEventListener('online', autoSyncProjectSheet);
 
 // ---------- history ----------
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -3425,7 +3458,6 @@ loadDayIntoForm();
 renderHistory();
 refreshMonthSelect();
 initPhotoStore();
-showSheetInfo();
 autoSyncProjectSheet();
 </script>
 </body>
