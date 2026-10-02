@@ -6,6 +6,11 @@
 // แถวที่ 1 = หัวตาราง: Project number | Project name | Project Manager | Nickname
 // (หาคอลัมน์จากชื่อหัวตาราง ไม่เจอใช้ A–D ตามลำดับ)
 
+/**
+ * @OnlyCurrentDoc
+ * จำกัดสิทธิ์สคริปต์ให้เข้าถึงได้เฉพาะ Sheet นี้ไฟล์เดียว (ไม่แตะไฟล์อื่นใน Google Drive/บัญชี)
+ */
+
 const SHEET_NAME = ''; // ว่าง = แผ่นแรก
 
 function sheet_(){
