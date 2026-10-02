@@ -154,18 +154,27 @@
   .past-banner button{ border:none; background:var(--accent); color:#fff; font-family:var(--sans); font-size:14px; font-weight:600;
     padding:7px 14px; border-radius:16px; cursor:pointer; flex-shrink:0; }
 
-  /* แถบเมนูด้านล่างแบบ iPhone */
-  .tabbar{ position:fixed; left:0; right:0; bottom:0; z-index:50;
-    background:color-mix(in srgb, var(--panel) 92%, transparent);
-    -webkit-backdrop-filter:saturate(180%) blur(20px); backdrop-filter:saturate(180%) blur(20px);
-    border-top:0.5px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
-  .tabbar-inner{ max-width:520px; margin:0 auto; display:flex; }
-  .tab-btn{ flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 0 5px;
-    background:none; border:none; color:var(--muted); font-family:var(--sans); font-size:10px; font-weight:500;
-    letter-spacing:.01em; cursor:pointer; transition:color .2s ease; }
-  .tab-btn svg{ width:25px; height:25px; transition:transform .25s cubic-bezier(.3,.7,.4,1.4); }
-  .tab-btn.active{ color:var(--accent); }
-  .tab-btn:active svg{ transform:scale(.88); }
+  /* แถบเมนูลอยแบบกระจก (Liquid Glass แบบ iOS 26) */
+  :root{ --glass-bg:rgba(255,255,255,.62); --glass-hl:rgba(255,255,255,.75); --glass-pill:rgba(0,0,0,.075); --glass-border:rgba(0,0,0,.08); }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --glass-bg:rgba(44,44,46,.62); --glass-hl:rgba(255,255,255,.12); --glass-pill:rgba(255,255,255,.13); --glass-border:rgba(255,255,255,.1); } }
+  :root[data-theme="dark"]{ --glass-bg:rgba(44,44,46,.62); --glass-hl:rgba(255,255,255,.12); --glass-pill:rgba(255,255,255,.13); --glass-border:rgba(255,255,255,.1); }
+  .tabbar{ position:fixed; left:0; right:0; bottom:calc(10px + env(safe-area-inset-bottom)); z-index:50; padding:0 18px; pointer-events:none; }
+  .tabbar-inner{ pointer-events:auto; position:relative; max-width:400px; margin:0 auto; display:flex; padding:4px; border-radius:999px;
+    background:var(--glass-bg); border:0.5px solid var(--glass-border);
+    -webkit-backdrop-filter:blur(22px) saturate(190%); backdrop-filter:blur(22px) saturate(190%);
+    box-shadow:0 10px 34px rgba(0,0,0,.16), 0 2px 6px rgba(0,0,0,.06), inset 0 1px 0 var(--glass-hl); }
+  .tab-pill{ position:absolute; top:4px; bottom:4px; left:4px; width:calc((100% - 8px) / 3); border-radius:999px;
+    background:var(--glass-pill); box-shadow:inset 0 1px 0 var(--glass-hl);
+    transition:transform .5s cubic-bezier(.3,1.25,.45,1); }
+  .tabbar-inner[data-i="1"] .tab-pill{ transform:translateX(100%); }
+  .tabbar-inner[data-i="2"] .tab-pill{ transform:translateX(200%); }
+  .tab-btn{ position:relative; z-index:1; flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; padding:7px 0 6px;
+    background:none; border:none; border-radius:999px; color:var(--text); opacity:.78; font-family:var(--sans); font-size:10.5px; font-weight:600;
+    letter-spacing:.01em; cursor:pointer; transition:color .25s ease, opacity .25s ease; }
+  .tab-btn svg{ width:24px; height:24px; transition:transform .3s cubic-bezier(.3,1.4,.5,1); }
+  .tab-btn.active{ color:var(--accent); opacity:1; }
+  .tab-btn:active svg{ transform:scale(.86); }
+  @media (prefers-reduced-motion: reduce){ .tab-pill{ transition:none; } }
   .add-past{ position:relative; overflow:hidden; margin-bottom:14px; }
   .add-past svg{ width:18px; height:18px; }
 
@@ -273,6 +282,18 @@
     color:var(--text); font-family:var(--sans); font-size:16px; padding:10px 12px;
   }
   .proj-field input::placeholder{ color:var(--muted); }
+  .proj-row{ display:flex; gap:10px; margin-bottom:12px; }
+  .proj-row .proj-field{ flex:1; min-width:0; margin-bottom:0; }
+  .proj-field input[readonly]{ background:transparent; box-shadow:inset 0 0 0 0.5px var(--line); color:var(--text); cursor:default; }
+  .proj-field input[readonly]::placeholder{ color:var(--muted); opacity:.7; }
+  .pd-dd{ display:none; margin:-4px 0 10px; border-radius:12px; border:0.5px solid var(--line); background:var(--panel);
+    box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:190px; overflow-y:auto; }
+  .pd-dd.open{ display:block; animation:ddIn .25s cubic-bezier(.2,.8,.2,1); }
+  .pd-dd .dd-item{ padding:10px 14px; border-bottom:0.5px solid var(--line); cursor:pointer; }
+  .pd-dd .dd-item:last-child{ border-bottom:none; }
+  .pd-dd .dd-item:active, .pd-dd .dd-item.active{ background:var(--fill); }
+  .pd-dd .dd-main{ font-size:15px; color:var(--text); }
+  .pd-dd .dd-sub{ font-size:13px; color:var(--muted); margin-top:2px; }
   .proj-input{ position:relative; }
   .proj-field .proj-input input{ padding-right:40px; }
   .proj-clear{ position:absolute; top:50%; right:6px; transform:translateY(-50%); width:30px; height:30px;
@@ -291,9 +312,6 @@
   #projNumber{ text-transform:uppercase; letter-spacing:.02em; }
   #projNumber::placeholder{ text-transform:none; letter-spacing:0; }
   #projDd{ right:0; }
-  #projDd .dd-item{ display:flex; align-items:center; gap:8px; }
-  #projDd .dd-text{ flex:1; min-width:0; }
-  #projDd .dd-del{ background:none; border:none; color:var(--muted); font-size:13px; padding:6px; cursor:pointer; font-family:var(--sans); }
   .place-dd .dd-msg{ padding:12px 14px; font-size:14px; color:var(--muted); }
 
   #mapDlg{ max-width:96vw; width:96vw; }
@@ -366,7 +384,8 @@
 </head>
 <body>
 <nav class="tabbar" id="tabbar" aria-label="Menu">
-  <div class="tabbar-inner">
+  <div class="tabbar-inner" id="tabbarInner" data-i="0">
+    <span class="tab-pill"></span>
     <button class="tab-btn active" id="tabBtnToday" data-tab="today">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.5 12 3.8l8.5 6.7"/><path d="M5.5 9v11h13V9"/><path d="M10 20v-5.5h4V20"/></svg>
       Home
@@ -423,18 +442,19 @@
     </div>
     <div class="proj-field">
       <label for="projName">Project name</label>
-      <div class="proj-input">
-        <input type="text" id="projName" placeholder="Project name" autocomplete="off" enterkeyhint="next">
-        <button type="button" class="proj-clear" data-clear-for="projName" aria-label="Clear project name"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+      <input type="text" id="projName" placeholder="Auto-filled from project number" readonly tabindex="-1">
+    </div>
+    <div class="proj-row">
+      <div class="proj-field">
+        <label for="projManager">Project Manager</label>
+        <input type="text" id="projManager" placeholder="Auto-filled" readonly tabindex="-1">
+      </div>
+      <div class="proj-field">
+        <label for="projNickname">Nickname</label>
+        <input type="text" id="projNickname" placeholder="Auto-filled" readonly tabindex="-1">
       </div>
     </div>
-    <div class="proj-field">
-      <label for="projManager">Project Manager</label>
-      <div class="proj-input">
-        <input type="text" id="projManager" placeholder="Project Manager" autocomplete="off" enterkeyhint="done">
-        <button type="button" class="proj-clear" data-clear-for="projManager" aria-label="Clear project manager"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
-      </div>
-    </div>
+    <div class="hint" style="margin-top:0;">Search a project number from your Project list. Name, manager and nickname fill in automatically.</div>
   </div>
 
   <!-- ODOMETER CARD -->
@@ -508,7 +528,7 @@
       Add project
     </button>
     <div id="projectList"></div>
-    <div class="hint">Projects here appear in the Project number list on Home. Tap a project to edit it — days that use it are updated too.</div>
+    <div class="hint">Projects here appear in the Project number list on Home. Only projects saved here can be used on Home. Tap a project to edit it — days that use it are updated too.</div>
   </div>
   </div>
 
@@ -569,10 +589,17 @@
       <label for="pdName">Project name</label>
       <input type="text" id="pdName" placeholder="Project name" autocomplete="off">
     </div>
-    <div class="proj-field">
-      <label for="pdManager">Project Manager</label>
-      <input type="text" id="pdManager" placeholder="Project Manager" autocomplete="off">
+    <div class="proj-row" style="margin-bottom:10px;">
+      <div class="proj-field">
+        <label for="pdManager">Project Manager</label>
+        <input type="text" id="pdManager" placeholder="Search or type" autocomplete="off">
+      </div>
+      <div class="proj-field">
+        <label for="pdNickname">Nickname</label>
+        <input type="text" id="pdNickname" placeholder="Search or type" autocomplete="off">
+      </div>
     </div>
+    <div class="pd-dd" id="pdPeopleDd"></div>
     <div class="pd-err" id="pdErr"></div>
     <div class="btn-row">
       <button class="btn btn-ghost" id="pdCancel">Cancel</button>
@@ -917,6 +944,7 @@ function setActiveTab(name){
   document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
   document.getElementById('tabBtnProject').classList.toggle('active', name==='project');
   document.getElementById('pageTitle').textContent = name==='history' ? 'History' : name==='project' ? 'Projects' : 'Mileage Log';
+  document.getElementById('tabbarInner').dataset.i = String(Math.max(0, VIEWS.indexOf(name)));
 }
 
 // แสดง el แบบเลื่อน/จางเข้า (dx: + มาจากขวา, - มาจากซ้าย; dy: เลื่อนขึ้นเล็กน้อย)
@@ -1103,6 +1131,7 @@ function loadDayIntoForm(){
   document.getElementById('projNumber').value = pj.number || '';
   document.getElementById('projName').value = pj.name || '';
   document.getElementById('projManager').value = pj.manager || '';
+  document.getElementById('projNickname').value = pj.nickname || '';
   syncProjClears();
   document.getElementById('startKm').value = rec.startKm ?? '';
   document.getElementById('endKm').value = rec.endKm ?? '';
@@ -1727,7 +1756,12 @@ document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
   rec.startKm = document.getElementById('startKm').value === '' ? null : parseFloat(document.getElementById('startKm').value);
   rec.endKm = document.getElementById('endKm').value === '' ? null : parseFloat(document.getElementById('endKm').value);
 
-  rememberProject(rec.project);
+  // Project number ต้องเป็นโปรเจกต์ที่สร้างไว้ในเมนู Project เท่านั้น
+  const pn = rec.project && rec.project.number;
+  if(pn && !projectRegistry()[pn]){
+    dlg('Project not found', `${pn} is not in your project list. Pick a project from the list, or add it in the Project menu first.`);
+    return;
+  }
 
   if(editingPast){
     // วันเก่าแก้ตรงลงวันนั้นอยู่แล้ว — กด Save = เสร็จแล้วกลับไปหน้า History
@@ -1770,107 +1804,87 @@ document.getElementById('viewRouteBtn').addEventListener('click', ()=>{
 });
 
 // ---------- project information ----------
-// ข้อมูลโปรเจกต์ของแต่ละวันเก็บใน rec.project = {number, name, manager}
-// db.projects = รายชื่อโปรเจกต์ที่เคยกรอก (key = project number) — ชื่อและ PM ผูกกับเลขโปรเจกต์เสมอ
+// ข้อมูลโปรเจกต์ของแต่ละวันเก็บใน rec.project = {number, name, manager, nickname}
+// db.projects = รายชื่อโปรเจกต์ที่สร้างในเมนู Project (key = project number)
+// หน้า Home ใช้ค้นหาเลขโปรเจกต์อย่างเดียว — ชื่อ/PM/ชื่อเล่น เติมให้อัตโนมัติจากเลขนั้น แก้เองไม่ได้
 function normProjNumber(v){ return String(v ?? '').toUpperCase().trim(); }
 function hasProject(r){
   const p = r && r.project;
-  return !!(p && (p.number || p.name || p.manager));
+  return !!(p && (p.number || p.name || p.manager || p.nickname));
 }
 function projectRegistry(){
   if(!db.projects || typeof db.projects !== 'object') db.projects = {};
   return db.projects;
 }
-// บันทึก/อัปเดตเข้า registry ตอนกด Save (ไม่ทำระหว่างพิมพ์ จะได้ไม่เกิดเลขโปรเจกต์ครึ่งๆ กลางๆ)
-function rememberProject(p){
-  if(!p || !p.number) return;
-  projectRegistry()[p.number] = { name:p.name || '', manager:p.manager || '' };
-}
-// แสดงปุ่ม ⓧ เฉพาะช่องที่มีข้อความ
 function syncProjClears(){
   document.querySelectorAll('.proj-clear').forEach(b=>{
     b.classList.toggle('show', document.getElementById(b.dataset.clearFor).value !== '');
   });
 }
-function setProjectField(field, value){
+// ตั้งเลขโปรเจกต์ของวันนี้ แล้วเติมชื่อ/PM/ชื่อเล่นจากรายชื่อโปรเจกต์ (ไม่เจอ = ว่าง)
+function applyProjectNumber(n){
+  const info = n ? projectRegistry()[n] : null;
+  const p = { number:n, name:info ? info.name || '' : '', manager:info ? info.manager || '' : '', nickname:info ? info.nickname || '' : '' };
+  document.getElementById('projName').value = p.name;
+  document.getElementById('projManager').value = p.manager;
+  document.getElementById('projNickname').value = p.nickname;
   const rec = curRec();
-  const p = { number:'', name:'', manager:'', ...(rec.project || {}) };
-  p[field] = value;
-  if(p.number || p.name || p.manager) rec.project = p; else delete rec.project;
+  if(n) rec.project = p; else delete rec.project;
   saveDB();
-}
-function fillProject(number){
-  const info = projectRegistry()[number];
-  if(!info) return;
-  document.getElementById('projNumber').value = number;
-  document.getElementById('projName').value = info.name;
-  document.getElementById('projManager').value = info.manager;
   syncProjClears();
-  setProjectField('number', number);
-  setProjectField('name', info.name);
-  setProjectField('manager', info.manager);
 }
 (function initProjectFields(){
   const numIn = document.getElementById('projNumber');
-  const nameIn = document.getElementById('projName');
-  const pmIn = document.getElementById('projManager');
   const dd = document.getElementById('projDd');
   let items = [], active = -1, touchingDd = false;
   const close = ()=>{ dd.classList.remove('open'); active = -1; };
   const render = ()=>{
     const q = normProjNumber(numIn.value);
     const reg = projectRegistry();
-    items = Object.keys(reg).filter(n=>!q || n.includes(q)).sort((a,b)=>{
-      // ขึ้นต้นด้วยคำที่พิมพ์มาก่อน
+    const ql = q.toLowerCase();
+    items = Object.keys(reg).filter(n=>{
+      if(!q) return true;
+      const r = reg[n];
+      return n.includes(q) || [r.name, r.manager, r.nickname].some(v=>v && v.toLowerCase().includes(ql));
+    }).sort((a,b)=>{
       const pa = a.startsWith(q) ? 0 : 1, pb = b.startsWith(q) ? 0 : 1;
       return pa - pb || a.localeCompare(b);
     });
-    // พิมพ์ตรงกับโปรเจกต์ที่มีอยู่แล้วและเลือกไว้แล้ว ไม่ต้องโชว์รายการซ้ำ
-    if(!items.length || (items.length === 1 && items[0] === q && nameIn.value === reg[q].name && pmIn.value === reg[q].manager)){ close(); return; }
+    if(!reg[q] && q && !items.length){ dd.innerHTML = `<div class="dd-msg">No project “${escHtml(q)}”. Add it in the Project menu first.</div>`; dd.classList.add('open'); return; }
+    if(!items.length || (items.length === 1 && items[0] === q)){ close(); return; }
     if(active >= items.length) active = items.length - 1;
     dd.innerHTML = items.map((n,k)=>{
-      const sub = [reg[n].name, reg[n].manager].filter(Boolean).join(' · ');
+      const r = reg[n];
+      const pm = r.manager ? r.manager + (r.nickname ? ` (${r.nickname})` : '') : (r.nickname || '');
+      const sub = [r.name, pm].filter(Boolean).join(' · ');
       return `<div class="dd-item${k===active?' active':''}" data-k="${k}">
-        <div class="dd-text"><div class="dd-main">${escHtml(n)}</div>${sub ? `<div class="dd-sub">${escHtml(sub)}</div>` : ''}</div>
-        <button class="dd-del" data-del="${k}" title="Remove from list">Remove</button>
+        <div class="dd-main">${escHtml(n)}</div>${sub ? `<div class="dd-sub">${escHtml(sub)}</div>` : ''}
       </div>`;
     }).join('');
     dd.classList.add('open');
     dd.querySelectorAll('[data-k]').forEach(el=>{
       el.addEventListener('mousedown', e=>e.preventDefault());
-      el.addEventListener('click', e=>{
-        e.preventDefault();
-        const del = e.target.closest('[data-del]');
-        const n = items[parseInt(el.dataset.k)];
-        if(del){
-          if(confirm(`Remove ${n} from the project list? Days already saved keep their project info.`)){
-            delete projectRegistry()[n]; saveDB(); render();
-          }
-          return;
-        }
-        choose(n);
-      });
+      el.addEventListener('click', e=>{ e.preventDefault(); choose(items[parseInt(el.dataset.k)]); });
     });
   };
-  const choose = n=>{ if(!n) return; fillProject(n); close(); nameIn.blur(); numIn.blur(); };
+  const choose = n=>{ if(!n) return; numIn.value = n; applyProjectNumber(n); close(); numIn.blur(); };
 
   numIn.addEventListener('input', ()=>{
     // เปลี่ยนเป็นตัวพิมพ์ใหญ่เสมอ (คงตำแหน่งเคอร์เซอร์ไว้)
     const pos = numIn.selectionStart, up = numIn.value.toUpperCase();
     if(up !== numIn.value){ numIn.value = up; try{ numIn.setSelectionRange(pos, pos); }catch(e){} }
-    setProjectField('number', normProjNumber(numIn.value));
+    applyProjectNumber(normProjNumber(numIn.value));
     active = -1; render();
   });
-  let numAtFocus = '';
-  numIn.addEventListener('focus', ()=>{ numAtFocus = normProjNumber(numIn.value); render(); });
+  numIn.addEventListener('focus', render);
   numIn.addEventListener('keydown', e=>{
     if(!dd.classList.contains('open') || !items.length){
-      if(e.key === 'Enter'){ e.preventDefault(); nameIn.focus(); }
+      if(e.key === 'Enter'){ e.preventDefault(); numIn.blur(); }
       return;
     }
     if(e.key === 'ArrowDown'){ e.preventDefault(); active = Math.min(items.length-1, active+1); render(); }
     else if(e.key === 'ArrowUp'){ e.preventDefault(); active = Math.max(0, active-1); render(); }
-    else if(e.key === 'Enter'){ e.preventDefault(); if(active >= 0) choose(items[active]); else { close(); nameIn.focus(); } }
+    else if(e.key === 'Enter'){ e.preventDefault(); if(active >= 0) choose(items[active]); else { close(); numIn.blur(); } }
     else if(e.key === 'Escape'){ close(); }
   });
   dd.addEventListener('touchstart', ()=>{ touchingDd = true; }, {passive:true});
@@ -1878,43 +1892,35 @@ function fillProject(number){
   numIn.addEventListener('blur', ()=>setTimeout(()=>{
     if(touchingDd) return;
     close();
-    // พิมพ์เลขที่มีอยู่แล้วครบ แต่ไม่ได้แตะเลือก -> เติมชื่อและ PM ของเลขนั้นให้
     const n = normProjNumber(numIn.value);
-    if(numIn.value !== n){ numIn.value = n; setProjectField('number', n); }
-    if(projectRegistry()[n] && (n !== numAtFocus || (!nameIn.value.trim() && !pmIn.value.trim()))) fillProject(n);
-    numAtFocus = n;
+    if(numIn.value !== n){ numIn.value = n; applyProjectNumber(n); }
   }, 200));
   document.addEventListener('pointerdown', e=>{
     if(!dd.classList.contains('open')) return;
     if(e.target === numIn || dd.contains(e.target)) return;
     close();
   });
-  nameIn.addEventListener('input', ()=>setProjectField('name', nameIn.value));
-  pmIn.addEventListener('input', ()=>setProjectField('manager', pmIn.value));
-  [numIn, nameIn, pmIn].forEach(inp=>inp.addEventListener('input', syncProjClears));
   document.querySelectorAll('.proj-clear').forEach(b=>{
     b.addEventListener('mousedown', e=>e.preventDefault()); // ไม่ให้ช่องเสีย focus (คีย์บอร์ดไม่หุบ)
     b.addEventListener('click', ()=>{
-      const inp = document.getElementById(b.dataset.clearFor);
-      inp.value = '';
-      if(inp === numIn) numAtFocus = '';
-      inp.dispatchEvent(new Event('input', {bubbles:true}));
-      inp.focus();
+      numIn.value = '';
+      applyProjectNumber('');
+      numIn.focus();
+      render();
     });
   });
-  nameIn.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); pmIn.focus(); } });
-  pmIn.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); pmIn.blur(); } });
 })();
 
 // ---------- project page ----------
 function projectDayCount(num){ return dataDates().filter(d=>db.days[d].project && db.days[d].project.number === num).length; }
+function fmtPM(r){ return r.manager ? r.manager + (r.nickname ? ` (${r.nickname})` : '') : (r.nickname || ''); }
 function renderProjects(){
   const list = document.getElementById('projectList');
   const reg = projectRegistry();
   const nums = Object.keys(reg).sort((a,b)=>a.localeCompare(b));
   if(!nums.length){ list.innerHTML = '<div class="empty">No projects yet</div>'; return; }
   list.innerHTML = nums.map(n=>{
-    const sub = [reg[n].name, reg[n].manager].filter(Boolean).join(' · ') || '—';
+    const sub = [reg[n].name, fmtPM(reg[n])].filter(Boolean).join(' · ') || '—';
     const days = projectDayCount(n);
     return `<div class="history-item proj-item" data-proj="${escHtml(n)}">
       <div class="d"><span class="num">${escHtml(n)}</span><span class="dist">${escHtml(sub)}${days ? ' · '+days+(days>1?' days':' day') : ''}</span></div>
@@ -1935,15 +1941,27 @@ function renderProjects(){
     }
   });
 }
+// รายชื่อ PM + ชื่อเล่น ที่เคยใช้ในโปรเจกต์ต่างๆ (ไม่ซ้ำ)
+function knownPeople(){
+  const seen = new Map();
+  Object.values(projectRegistry()).forEach(r=>{
+    if(!r.manager && !r.nickname) return;
+    const key = (r.manager||'').toLowerCase() + '|' + (r.nickname||'').toLowerCase();
+    if(!seen.has(key)) seen.set(key, { manager:r.manager||'', nickname:r.nickname||'' });
+  });
+  return Array.from(seen.values()).sort((a,b)=>(a.manager||a.nickname).localeCompare(b.manager||b.nickname));
+}
 let _editingProj = null;
 function openProjDlg(num){
   _editingProj = num || null;
   const info = num ? projectRegistry()[num] : null;
   document.getElementById('pdTitle').textContent = num ? 'Edit project' : 'Add project';
   document.getElementById('pdNumber').value = num || '';
-  document.getElementById('pdName').value = info ? info.name : '';
-  document.getElementById('pdManager').value = info ? info.manager : '';
+  document.getElementById('pdName').value = info ? info.name || '' : '';
+  document.getElementById('pdManager').value = info ? info.manager || '' : '';
+  document.getElementById('pdNickname').value = info ? info.nickname || '' : '';
   document.getElementById('pdErr').textContent = '';
+  document.getElementById('pdPeopleDd').classList.remove('open');
   const d = document.getElementById('projDlg');
   d.classList.remove('closing');
   d.showModal();
@@ -1953,21 +1971,57 @@ document.getElementById('pdNumber').addEventListener('input', e=>{
   const inp = e.target, pos = inp.selectionStart, up = inp.value.toUpperCase();
   if(up !== inp.value){ inp.value = up; try{ inp.setSelectionRange(pos, pos); }catch(_){} }
 });
+// ค้นหา PM / ชื่อเล่น ที่มีอยู่แล้ว — เลือกแล้วเติมให้ทั้งสองช่อง
+(function initPeopleSearch(){
+  const pmIn = document.getElementById('pdManager');
+  const nnIn = document.getElementById('pdNickname');
+  const dd = document.getElementById('pdPeopleDd');
+  let items = [];
+  const close = ()=>dd.classList.remove('open');
+  const render = (src)=>{
+    const q = src.value.trim().toLowerCase();
+    const all = knownPeople();
+    items = all.filter(p=>!q || p.manager.toLowerCase().includes(q) || p.nickname.toLowerCase().includes(q));
+    const exact = items.length === 1 && items[0].manager === pmIn.value.trim() && items[0].nickname === nnIn.value.trim();
+    if(!items.length || exact){ close(); return; }
+    dd.innerHTML = items.map((p,k)=>`<div class="dd-item" data-k="${k}">
+        <div class="dd-main">${escHtml(p.manager || p.nickname)}</div>
+        ${p.manager && p.nickname ? `<div class="dd-sub">${escHtml(p.nickname)}</div>` : ''}
+      </div>`).join('');
+    dd.classList.add('open');
+    dd.querySelectorAll('[data-k]').forEach(el=>{
+      el.addEventListener('mousedown', e=>e.preventDefault());
+      el.addEventListener('click', e=>{
+        e.preventDefault();
+        const p = items[parseInt(el.dataset.k)];
+        pmIn.value = p.manager; nnIn.value = p.nickname;
+        close(); pmIn.blur(); nnIn.blur();
+      });
+    });
+  };
+  [pmIn, nnIn].forEach(inp=>{
+    inp.addEventListener('focus', ()=>render(inp));
+    inp.addEventListener('input', ()=>render(inp));
+    inp.addEventListener('blur', ()=>setTimeout(()=>{
+      if(document.activeElement !== pmIn && document.activeElement !== nnIn) close();
+    }, 200));
+  });
+})();
 document.getElementById('pdCancel').addEventListener('click', ()=>closeDialogSmooth(document.getElementById('projDlg')));
 document.getElementById('pdSave').addEventListener('click', ()=>{
   const n = normProjNumber(document.getElementById('pdNumber').value);
   const name = document.getElementById('pdName').value.trim();
   const manager = document.getElementById('pdManager').value.trim();
+  const nickname = document.getElementById('pdNickname').value.trim();
   const err = document.getElementById('pdErr');
   if(!n){ err.textContent = 'Enter a project number.'; return; }
   const reg = projectRegistry();
   if(n !== _editingProj && reg[n]){ err.textContent = `${n} already exists.`; return; }
   if(_editingProj && _editingProj !== n) delete reg[_editingProj];
-  reg[n] = { name, manager };
-  // ชื่อและ PM ผูกกับเลขโปรเจกต์ — อัปเดตทุกวันที่ใช้โปรเจกต์นี้ให้ตรงกัน
-  if(_editingProj){
-    allRecs().forEach(r=>{ if(r.project && r.project.number === _editingProj) r.project = { number:n, name, manager }; });
-  }
+  reg[n] = { name, manager, nickname };
+  // ชื่อ/PM/ชื่อเล่น ผูกกับเลขโปรเจกต์ — อัปเดตทุกวันที่ใช้โปรเจกต์นี้ให้ตรงกัน
+  const matchNum = _editingProj || n;
+  allRecs().forEach(r=>{ if(r.project && r.project.number === matchNum) r.project = { number:n, name, manager, nickname }; });
   saveDB();
   loadDayIntoForm();
   renderProjects();
