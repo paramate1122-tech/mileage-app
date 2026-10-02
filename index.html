@@ -176,6 +176,16 @@
   .tab-btn.active{ color:var(--accent); opacity:1; }
   .tab-btn:active svg{ transform:scale(.86); }
   @media (prefers-reduced-motion: reduce){ .tab-pill{ transition:none; } }
+  .tolls-box{ margin-top:14px; padding-top:14px; border-top:0.5px solid var(--line); }
+  .tolls-box .tolls-title{ font-size:13px; color:var(--muted); margin-bottom:8px; }
+  .tolls-box .btn svg{ width:18px; height:18px; }
+  .toll-file{ display:flex; align-items:center; gap:10px; background:var(--fill); border-radius:10px; padding:10px 12px; }
+  .toll-file .ico{ width:30px; height:30px; flex-shrink:0; color:var(--red); }
+  .toll-file .info{ flex:1; min-width:0; }
+  .toll-file .name{ font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .toll-file .sub{ font-size:13px; color:var(--muted); margin-top:2px; }
+  .toll-file .acts{ display:flex; flex-direction:column; align-items:flex-end; gap:0; }
+  .toll-file .icon-btn{ padding:3px 4px; font-size:14px; }
   .add-past{ position:relative; overflow:hidden; margin-bottom:14px; }
   .add-past svg{ width:18px; height:18px; }
 
@@ -544,6 +554,8 @@
     <select id="historyMonthSelect" class="history-month" aria-label="Month"></select>
     <div class="history-summary" id="historySummary"></div>
     <div id="historyList"></div>
+    <div class="tolls-box" id="tollsBox"></div>
+    <input type="file" accept="application/pdf,.pdf" id="tollsFile" style="display:none">
     <div class="hint">Pick a month to see its entries. Tap a day to view or edit it. Use “Add a past day” to fill in a day you missed.</div>
   </div>
 
@@ -554,6 +566,7 @@
       <select id="monthSelect"></select>
       <button class="btn btn-teal" id="exportExcelBtn">Export Excel (.xlsx)</button>
       <button class="btn btn-ghost" id="exportWordBtn">Export Word (.docx)</button>
+      <button class="btn btn-ghost" id="exportAllBtn">Export all files (.zip)</button>
       <div class="btn-row">
         <button class="btn btn-ghost btn-sm" id="backupBtn" style="flex:1;">Back up (JSON)</button>
         <button class="btn btn-ghost btn-sm" id="restoreBtnLabel" style="flex:1;">
@@ -562,7 +575,7 @@
         </button>
       </div>
     </div>
-    <div class="hint">Excel: fills the expense claim template — project, date, 泰铢, allowance (km × 1.2 × 5) and start–end mileage. Word: one page per day with odometer photos and a Google Maps route image. Data is stored only on this device — back up regularly.</div>
+    <div class="hint">Excel: fills the expense claim template — project, date, 泰铢, allowance (km × 1.2 × 5), tolls and start–end mileage. Word: one page per day with odometer photos and a Google Maps route image. Export all: Word + Excel + the month’s tolls PDF with matching toll rows highlighted, in one .zip. Data is stored only on this device — back up regularly.</div>
   </div>
 
   </div>
@@ -2091,6 +2104,7 @@ function renderHistory(){
   const list = document.getElementById('historyList');
   const summary = document.getElementById('historySummary');
   const month = document.getElementById('historyMonthSelect').value;
+  renderTollsBox(month);
   const dates = dataDates().filter(d=>d.slice(0,7)===month).sort().reverse();
   if(dates.length===0){
     summary.textContent = '';
@@ -2105,7 +2119,7 @@ function renderHistory(){
     const distTxt = dist==null ? '—' : dist.toLocaleString(undefined,{maximumFractionDigits:1})+' km';
     const ptsCount = (r.points||[]).filter(p=>p!=null).length;
     return `<div class="history-item" data-day="${d}">
-      <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${r.project && r.project.number ? escHtml(r.project.number)+' · ' : ''}${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}</span></div>
+      <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${r.project && r.project.number ? escHtml(r.project.number)+' · ' : ''}${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}${tollTotalForDay(d) ? ' · Tolls ฿'+fmtBaht(tollTotalForDay(d)) : ''}</span></div>
       <div class="actions">
         <button class="icon-btn" data-edit="${d}">Edit</button>
         <button class="icon-btn del" data-del="${d}">Delete</button>
@@ -2139,6 +2153,174 @@ function refreshMonthSelect(){
   sel.innerHTML = sorted.map(m=>`<option value="${m}">${fmtMonthLabel(m)}</option>`).join('');
   if(prev && sorted.includes(prev)) sel.value = prev;
 }
+// ---------- tolls (รายงานการใช้บัตรทางด่วน PDF) ----------
+// db.tolls[YYYY-MM] = { name, uploadedAt, entries:[{date, time, type:'pass'|'topup', amount, page, y, fs}] }
+// ตัวไฟล์ PDF เก็บใน IndexedDB (META_STORE key "tolls:YYYY-MM") — คิดเงินเฉพาะ "ผ่านทาง" ไม่นับ "เติมเงิน"
+const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+const PDFJS_WORKER_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+const PDFLIB_URL = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+const _scriptLoads = {};
+function loadScriptOnce(url){
+  if(!_scriptLoads[url]) _scriptLoads[url] = new Promise((resolve, reject)=>{
+    const el = document.createElement('script');
+    el.src = url; el.onload = resolve;
+    el.onerror = ()=>{ delete _scriptLoads[url]; reject(new Error('Could not load ' + url.split('/').pop() + ' — check your internet connection.')); };
+    document.head.appendChild(el);
+  });
+  return _scriptLoads[url];
+}
+async function getPdfJs(){
+  await loadScriptOnce(PDFJS_URL);
+  const lib = window['pdfjs-dist/build/pdf'];
+  lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+  return lib;
+}
+function fmtBaht(n){ return Number(n).toLocaleString(undefined, {maximumFractionDigits:2}); }
+function tollMonthData(month){ return db.tolls && db.tolls[month] ? db.tolls[month] : null; }
+function tollPassesForDay(ds){
+  const t = tollMonthData(ds.slice(0,7));
+  return t ? t.entries.filter(e=>e.date === ds && e.type === 'pass') : [];
+}
+function tollTotalForDay(ds){
+  return Math.round(tollPassesForDay(ds).reduce((s,e)=>s+e.amount, 0) * 100) / 100;
+}
+// อ่านแถวรายการจาก PDF: แต่ละแถวมี วันที่+เวลา, ประเภท (ผ่านทาง/เติมเงิน) และจำนวนเงินอยู่ท้ายแถว
+async function parseTollsPdf(bytes){
+  const lib = await getPdfJs();
+  const pdf = await lib.getDocument({ data: bytes.slice() }).promise; // ส่งสำเนา (pdf.js จะยึด buffer ไป)
+  const entries = [];
+  for(let pn = 1; pn <= pdf.numPages; pn++){
+    const page = await pdf.getPage(pn);
+    const tc = await page.getTextContent();
+    const lines = [];
+    tc.items.forEach(i=>{
+      const str = (i.str || '').trim(); if(!str) return;
+      const it = { s:str, x:i.transform[4], y:i.transform[5], w:i.width, fs:Math.abs(i.transform[3]) || i.height || 12 };
+      let L = lines.find(l=>Math.abs(l.y - it.y) < 2);
+      if(!L){ L = { y:it.y, items:[] }; lines.push(L); }
+      L.items.push(it);
+    });
+    for(const L of lines){
+      L.items.sort((a,b)=>a.x - b.x);
+      const txt = L.items.map(i=>i.s).join(' ');
+      const dm = txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}:\d{2}(?::\d{2})?)/);
+      if(!dm) continue;
+      const isPass = /ผ่านทาง/.test(txt), isTopup = /เติมเงิน/.test(txt);
+      if(!isPass && !isTopup) continue;
+      const amt = L.items[L.items.length-1].s.replace(/,/g, '');
+      if(!/^\d+(\.\d+)?$/.test(amt)) continue;
+      entries.push({
+        date: `${dm[3]}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`, time: dm[4],
+        type: isPass ? 'pass' : 'topup', amount: parseFloat(amt),
+        page: pn - 1, y: L.y, fs: Math.max(...L.items.map(i=>i.fs))
+      });
+    }
+  }
+  return entries;
+}
+async function putTollFile(month, name, bytes){
+  const key = 'tolls:' + month;
+  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  await idbTx(META_STORE, 'readwrite', st=>{ st.put({ key, name, data, savedAt:Date.now() }); });
+  const back = await idbTx(META_STORE, 'readonly', st=>idbReq(st.get(key)));
+  if(!back || !back.data || back.data.byteLength !== bytes.byteLength) throw new Error('could not save the PDF on this device');
+}
+async function getTollFile(month){
+  const row = await idbTx(META_STORE, 'readonly', st=>idbReq(st.get('tolls:' + month)));
+  return row && row.data ? new Uint8Array(row.data) : null;
+}
+function deleteTollFile(month){
+  return idbTx(META_STORE, 'readwrite', st=>{ st.delete('tolls:' + month); });
+}
+// แถว "ผ่านทาง" ของวันที่มีบันทึกในเดือนนั้น = แถวที่นำไปคิดเงินและไฮไลต์
+function matchedTollEntries(month){
+  const t = tollMonthData(month); if(!t) return [];
+  const days = new Set(dataDates().filter(d=>d.startsWith(month)));
+  return t.entries.filter(e=>e.type === 'pass' && days.has(e.date));
+}
+function renderTollsBox(month){
+  const box = document.getElementById('tollsBox');
+  const t = tollMonthData(month);
+  const label = escHtml(fmtMonthLabel(month));
+  if(!t){
+    box.innerHTML = `<div class="tolls-title">Tolls for ${label}</div>
+      <button class="btn btn-ghost" id="uploadTollsBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></svg>
+        Upload tolls (PDF)
+      </button>`;
+  }else{
+    const matched = matchedTollEntries(month);
+    const total = matched.reduce((s,e)=>s+e.amount, 0);
+    const days = new Set(matched.map(e=>e.date)).size;
+    box.innerHTML = `<div class="tolls-title">Tolls for ${label}</div>
+      <div class="toll-file">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.5"/><path d="M9 13h6M9 16.5h4"/></svg>
+        <div class="info">
+          <div class="name">${escHtml(t.name)}</div>
+          <div class="sub">${matched.length} toll ${matched.length===1?'pass':'passes'} on ${days} recorded ${days===1?'day':'days'} · ฿${fmtBaht(total)}</div>
+        </div>
+        <div class="acts">
+          <button class="icon-btn" id="replaceTollsBtn">Replace</button>
+          <button class="icon-btn del" id="removeTollsBtn">Remove</button>
+        </div>
+      </div>`;
+  }
+  const pick = ()=>{ const f = document.getElementById('tollsFile'); f.value = ''; f.click(); };
+  const up = document.getElementById('uploadTollsBtn'); if(up) up.onclick = pick;
+  const rp = document.getElementById('replaceTollsBtn'); if(rp) rp.onclick = pick;
+  const rm = document.getElementById('removeTollsBtn');
+  if(rm) rm.onclick = async ()=>{
+    if(!confirm(`Remove the tolls file for ${fmtMonthLabel(month)}?`)) return;
+    delete db.tolls[month]; saveDB();
+    try{ await deleteTollFile(month); }catch(e){ console.error(e); }
+    renderHistory();
+  };
+}
+document.getElementById('tollsFile').addEventListener('change', async e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const entries = await parseTollsPdf(bytes);
+    if(!entries.length){ dlg('No tolls found', 'Could not find any toll rows (date, type and amount) in this PDF.'); return; }
+    // เดือนของไฟล์ = เดือนที่มีรายการมากที่สุด
+    const count = {};
+    entries.forEach(x=>{ const m = x.date.slice(0,7); count[m] = (count[m]||0) + 1; });
+    const month = Object.keys(count).sort((a,b)=>count[b]-count[a])[0];
+    if(tollMonthData(month) && !confirm(`Replace the tolls file already uploaded for ${fmtMonthLabel(month)}?`)) return;
+    await putTollFile(month, file.name, bytes);
+    if(!db.tolls) db.tolls = {};
+    db.tolls[month] = { name:file.name, uploadedAt:Date.now(), entries };
+    saveDB();
+    historyMonthWanted = month;
+    renderHistory();
+    const passes = entries.filter(x=>x.type==='pass').length, topups = entries.length - passes;
+    const matched = matchedTollEntries(month);
+    dlg('Tolls uploaded', `${fmtMonthLabel(month)}: ${passes} toll ${passes===1?'pass':'passes'} found` +
+      (topups ? ` (${topups} top-up${topups>1?'s':''} ignored)` : '') +
+      `. ${matched.length} ${matched.length===1?'matches':'match'} your recorded days — ฿${fmtBaht(matched.reduce((s,x)=>s+x.amount,0))}.`);
+  }catch(err){
+    console.error(err);
+    dlg('Upload failed', 'Could not read this PDF: ' + (err && err.message ? err.message : err));
+  }
+});
+// ไฮไลต์สีเหลืองที่แถว "ผ่านทาง" ของวันที่มีบันทึก (ไม่แตะเนื้อหาอื่นในไฟล์)
+async function buildHighlightedTollsPdf(month){
+  const bytes = await getTollFile(month);
+  if(!bytes) return null;
+  await loadScriptOnce(PDFLIB_URL);
+  const { PDFDocument, rgb, BlendMode } = PDFLib;
+  const doc = await PDFDocument.load(bytes);
+  const pages = doc.getPages();
+  for(const e of matchedTollEntries(month)){
+    const pg = pages[e.page]; if(!pg) continue;
+    const w = pg.getWidth();
+    pg.drawRectangle({ x:34, y:e.y - e.fs*0.55, width:w - 68, height:e.fs*1.75,
+      color:rgb(1, 0.9, 0.1), opacity:0.45, blendMode:BlendMode.Multiply });
+  }
+  return new Blob([await doc.save()], { type:'application/pdf' });
+}
+
 // ---------- export excel: กรอกข้อมูลลงไฟล์ template ใบเบิก (ไม่แตะ font/รูปแบบใดๆ ของ template) ----------
 // template = ไฟล์ .xlsx ต้นฉบับ (base64) — แก้แค่ค่าในเซลล์ของแถวข้อมูล (เริ่มแถว 8) ส่วนอื่นคงเดิมทุกไบต์
 const EXPENSE_TEMPLATE_B64 = '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';
@@ -2212,8 +2394,12 @@ async function buildExpenseXlsx(month){
     r = setCellXml(r, 'G'+rn, dd);
     r = setCellXml(r, 'H'+rn, '泰铢');
     r = setCellXml(r, 'R'+rn, amount);
+    // คอลัมน์ T (路桥费) = ค่าผ่านทางของวันนั้นจากไฟล์ tolls PDF (ไม่นับรายการเติมเงิน)
+    const toll = tollTotalForDay(d);
+    r = setCellXml(r, 'T'+rn, toll ? toll : '');
     // คอลัมน์ AH (当日合计) เป็นสูตร SUM ของ template — อัปเดตค่าที่แสดงไว้ให้ตรงกับยอด
-    r = r.replace(new RegExp(`(<c r="AH${rn}"[^>]*>(?:<f[^>]*/>|<f[^>]*>[^<]*</f>))<v>[^<]*</v>`), `$1<v>${amount === '' ? 0 : amount}</v>`);
+    const dayTotal = Math.round(((amount === '' ? 0 : amount) + toll) * 100) / 100;
+    r = r.replace(new RegExp(`(<c r="AH${rn}"[^>]*>(?:<f[^>]*/>|<f[^>]*>[^<]*</f>))<v>[^<]*</v>`), `$1<v>${dayTotal}</v>`);
     r = setCellXml(r, 'AI'+rn, odo);
     rows[idx] = r;
   });
@@ -2845,77 +3031,115 @@ document.getElementById('previewMapBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('mapDlgClose').onclick = () => document.getElementById('mapDlg').close();
 
+async function buildWordBlob(month, onProgress){
+  const dates = dataDates().filter(d=>d.startsWith(month)).sort();
+  if(typeof docx === 'undefined') throw new Error('Could not load the Word generator. Check your connection and try again.');
+  const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel } = docx;
+  const children = [
+    new Paragraph({ text:'Monthly Mileage & Route Report', heading:HeadingLevel.HEADING_1 }),
+    new Paragraph({ text:fmtMonthLabel(month), spacing:{after:300} })
+  ];
+
+  for(let di=0; di<dates.length; di++){
+    const d = dates[di];
+    const r = db.days[d];
+
+    if(onProgress) onProgress(`(${di+1}/${dates.length})`);
+
+    children.push(new Paragraph({ text:fmtDateShort(d), heading:HeadingLevel.HEADING_2, spacing:{before:400}, pageBreakBefore: di>0 }));
+
+    const photoRunChildren = [];
+    const startData = await getPhotoData(r.startPhoto).catch(()=>null);
+    const endData = await getPhotoData(r.endPhoto).catch(()=>null);
+    if(startData){
+      try{
+        photoRunChildren.push(new ImageRun({ data:b64ToUint8(startData), transformation:{width:220,height:165} }));
+      }catch(e){ console.error('embed start photo failed', e); }
+    }
+    if(endData){
+      if(photoRunChildren.length){
+        photoRunChildren.push(new TextRun({ text:'   ' }));
+      }
+      try{
+        photoRunChildren.push(new ImageRun({ data:b64ToUint8(endData), transformation:{width:220,height:165} }));
+      }catch(e){ console.error('embed end photo failed', e); }
+    }
+    if(photoRunChildren.length){
+      children.push(new Paragraph({ children:photoRunChildren, spacing:{before:150} }));
+    }
+
+    const pts = (r.points||[]).filter(p=>p!=null);
+    if(pts.length){
+      // ไม่ fallback เป็นแผนที่อื่น — ถ้า Google Maps ใช้งานไม่ได้ จะ throw error ออกไปทันทีและหยุดสร้างไฟล์
+      const mapResult = await buildRouteMapImage(
+        pts,
+        t=>{ if(onProgress) onProgress(`(${di+1}/${dates.length}) ${t}`); },
+        d
+      );
+      if(mapResult && mapResult.dataUrl){
+        children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapResult.dataUrl), transformation:{width:620,height:339} }) ], spacing:{before:150} }));
+      }
+    }
+  }
+
+  // Word ใช้ฟอนต์ SF ของระบบไม่ได้ จึงใช้ Helvetica Neue (มีในทุกเครื่อง Apple) ให้หน้าตาใกล้เคียง
+  const doc = new Document({ styles:{ default:{ document:{ run:{ font:'Helvetica Neue' } } } }, sections:[{ children }] });
+  return Packer.toBlob(doc);
+}
+function downloadBlob(blob, filename){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 10000);
+}
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   const month = document.getElementById('monthSelect').value;
-  const dates = dataDates().filter(d=>d.startsWith(month)).sort();
-  if(dates.length===0){ dlg('No data', 'No entries in the selected month.'); return; }
-  if(typeof docx === 'undefined'){
-    dlg('Export failed', 'Could not load the Word generator. Check your connection and try again.');
-    return;
-  }
+  if(!dataDates().some(d=>d.startsWith(month))){ dlg('No data', 'No entries in the selected month.'); return; }
   const btn = document.getElementById('exportWordBtn');
   const originalText = btn.textContent;
   btn.disabled = true;
-
   try{
-    const { Document, Packer, Paragraph, TextRun, ImageRun, ExternalHyperlink, HeadingLevel } = docx;
-    const children = [
-      new Paragraph({ text:'Monthly Mileage & Route Report', heading:HeadingLevel.HEADING_1 }),
-      new Paragraph({ text:document.getElementById('monthSelect').selectedOptions[0].textContent, spacing:{after:300} })
-    ];
-
-    for(let di=0; di<dates.length; di++){
-      const d = dates[di];
-      const r = db.days[d];
-
-      btn.textContent = `Creating file… (${di+1}/${dates.length})`;
-
-      children.push(new Paragraph({ text:fmtDateShort(d), heading:HeadingLevel.HEADING_2, spacing:{before:400}, pageBreakBefore: di>0 }));
-
-      const photoRunChildren = [];
-      const startData = await getPhotoData(r.startPhoto).catch(()=>null);
-      const endData = await getPhotoData(r.endPhoto).catch(()=>null);
-      if(startData){
-        try{
-          photoRunChildren.push(new ImageRun({ data:b64ToUint8(startData), transformation:{width:220,height:165} }));
-        }catch(e){ console.error('embed start photo failed', e); }
-      }
-      if(endData){
-        if(photoRunChildren.length){
-          photoRunChildren.push(new TextRun({ text:'   ' }));
-        }
-        try{
-          photoRunChildren.push(new ImageRun({ data:b64ToUint8(endData), transformation:{width:220,height:165} }));
-        }catch(e){ console.error('embed end photo failed', e); }
-      }
-      if(photoRunChildren.length){
-        children.push(new Paragraph({ children:photoRunChildren, spacing:{before:150} }));
-      }
-
-      const pts = (r.points||[]).filter(p=>p!=null);
-      if(pts.length){
-        // ไม่ fallback เป็นแผนที่อื่น — ถ้า Google Maps ใช้งานไม่ได้ จะ throw error ออกไปทันทีและหยุดสร้างไฟล์
-        const mapResult = await buildRouteMapImage(
-          pts,
-          t=>{ btn.textContent = `Creating file… (${di+1}/${dates.length}) ${t}`; },
-          d
-        );
-        if(mapResult && mapResult.dataUrl){
-          children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapResult.dataUrl), transformation:{width:620,height:339} }) ], spacing:{before:150} }));
-        }
-      }
-    }
-
-    // Word ใช้ฟอนต์ SF ของระบบไม่ได้ จึงใช้ Helvetica Neue (มีในทุกเครื่อง Apple) ให้หน้าตาใกล้เคียง
-    const doc = new Document({ styles:{ default:{ document:{ run:{ font:'Helvetica Neue' } } } }, sections:[{ children }] });
-    const blob = await Packer.toBlob(doc);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `mileage-report-${month}.docx`;
-    a.click();
+    const blob = await buildWordBlob(month, t=>{ btn.textContent = `Creating file… ${t}`; });
+    downloadBlob(blob, `mileage-report-${month}.docx`);
   }catch(err){
     console.error('Word export error:', err);
     dlg('Export failed', 'Error while creating the Word file: ' + (err && err.message ? err.message : 'unknown error'));
+  }finally{
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+});
+// Export all: Word + Excel + tolls PDF (ไฮไลต์แล้ว) รวมเป็นไฟล์ .zip เดียว
+document.getElementById('exportAllBtn').addEventListener('click', async ()=>{
+  const month = document.getElementById('monthSelect').value;
+  if(!dataDates().some(d=>d.startsWith(month))){ dlg('No data', 'No entries in the selected month.'); return; }
+  if(typeof JSZip === 'undefined'){ dlg('Export failed', 'The zip library has not loaded yet. Check your internet connection and try again.'); return; }
+  const btn = document.getElementById('exportAllBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  try{
+    const zip = new JSZip();
+    btn.textContent = 'Creating Word…';
+    zip.file(`mileage-report-${month}.docx`, await buildWordBlob(month, t=>{ btn.textContent = `Creating Word… ${t}`; }));
+    btn.textContent = 'Creating Excel…';
+    zip.file(`mileage-${month}.xlsx`, (await buildExpenseXlsx(month)).blob);
+    let note = '';
+    if(tollMonthData(month)){
+      btn.textContent = 'Highlighting tolls…';
+      const pdf = await buildHighlightedTollsPdf(month);
+      if(pdf) zip.file(`tolls-${month}.pdf`, pdf);
+      else note = ' The tolls PDF for this month could not be found on this device — please upload it again.';
+    }else{
+      note = ` No tolls PDF uploaded for ${fmtMonthLabel(month)}, so the zip has Word and Excel only.`;
+    }
+    btn.textContent = 'Zipping…';
+    const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
+    downloadBlob(blob, `mileage-${month}.zip`);
+    if(note) dlg('Exported', note.trim());
+  }catch(err){
+    console.error('Export all error:', err);
+    dlg('Export failed', 'Error while creating the files: ' + (err && err.message ? err.message : 'unknown error'));
   }finally{
     btn.textContent = originalText;
     btn.disabled = false;
@@ -2938,6 +3162,17 @@ async function buildBackupJSON(){
   for(const r of recs){
     for(const f of ['startPhoto','endPhoto']){
       if(isPhotoRef(r[f])) r[f] = await getPhotoData(r[f]).catch(()=>null);
+    }
+  }
+  // ไฟล์ tolls PDF ของแต่ละเดือนก็ใส่ในไฟล์สำรองด้วย (base64)
+  if(copy.tolls){
+    copy.tollFiles = {};
+    for(const m of Object.keys(copy.tolls)){
+      const bytes = await getTollFile(m).catch(()=>null);
+      if(bytes){
+        let bin = ''; for(let i=0; i<bytes.length; i+=0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i+0x8000));
+        copy.tollFiles[m] = btoa(bin);
+      }
     }
   }
   return JSON.stringify(copy);
@@ -2963,7 +3198,13 @@ document.getElementById('restoreFile').addEventListener('change', e=>{
     try{
       const parsed = JSON.parse(ev.target.result);
       if(!parsed.days) throw new Error('bad format');
+      const tollFiles = parsed.tollFiles || {};
+      delete parsed.tollFiles;
       db = parsed;
+      Object.keys(tollFiles).forEach(m=>{
+        const bytes = Uint8Array.from(atob(tollFiles[m]), c=>c.charCodeAt(0));
+        putTollFile(m, (db.tolls && db.tolls[m] && db.tolls[m].name) || `tolls-${m}.pdf`, bytes).catch(err=>console.error('restore tolls failed', err));
+      });
       // ย้ายรูปจากไฟล์สำรองเข้าที่เก็บรูปก่อน แล้วค่อยบันทึก (ไม่อย่างนั้นไฟล์ใหญ่จะเกินพื้นที่ทันที)
       migratePhotosToIdb().then(ok=>{
         const saved = ok || saveDB();
