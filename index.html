@@ -269,6 +269,20 @@
   .place-dd .dd-item.active{ background:var(--fill); }
   .place-dd .dd-main{ font-size:15px; color:var(--text); }
   .place-dd .dd-sub{ font-size:13px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .proj-field{ display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+  .proj-field:last-child{ margin-bottom:0; }
+  .proj-field label{ font-size:13px; color:var(--muted); }
+  .proj-field input{
+    width:100%; background:var(--fill); border:none; border-radius:10px; outline:none;
+    color:var(--text); font-family:var(--sans); font-size:16px; padding:10px 12px;
+  }
+  .proj-field input::placeholder{ color:var(--muted); }
+  #projNumber{ text-transform:uppercase; letter-spacing:.02em; }
+  #projNumber::placeholder{ text-transform:none; letter-spacing:0; }
+  #projDd{ right:0; }
+  #projDd .dd-item{ display:flex; align-items:center; gap:8px; }
+  #projDd .dd-text{ flex:1; min-width:0; }
+  #projDd .dd-del{ background:none; border:none; color:var(--muted); font-size:13px; padding:6px; cursor:pointer; font-family:var(--sans); }
   .place-dd .dd-msg{ padding:12px 14px; font-size:14px; color:var(--muted); }
 
   #mapDlg{ max-width:96vw; width:96vw; }
@@ -372,6 +386,26 @@
   <div class="past-banner" id="pastBanner">
     <div class="txt" id="pastBannerText"></div>
     <button id="backHistoryBtn">Today</button>
+  </div>
+
+  <!-- PROJECT CARD -->
+  <div class="card">
+    <h2>Project information</h2>
+    <div class="proj-field">
+      <label for="projNumber">Project number</label>
+      <div class="place-search">
+        <input type="text" id="projNumber" placeholder="Project number" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next">
+        <div class="place-dd" id="projDd"></div>
+      </div>
+    </div>
+    <div class="proj-field">
+      <label for="projName">Project name</label>
+      <input type="text" id="projName" placeholder="Project name" autocomplete="off" enterkeyhint="next">
+    </div>
+    <div class="proj-field">
+      <label for="projManager">Project Manager</label>
+      <input type="text" id="projManager" placeholder="Project Manager" autocomplete="off" enterkeyhint="done">
+    </div>
   </div>
 
   <!-- ODOMETER CARD -->
@@ -747,7 +781,7 @@ function fmtDateLong(ds){ const dt = parseDate(ds); return `${_WD[dt.getDay()]},
 // วันที่ไม่มีข้อมูลอะไรเลย (เปิดดูเฉยๆ) ไม่ต้องแสดงในประวัติ/รายงาน
 function hasData(r){
   if(!r) return false;
-  return r.startKm != null || r.endKm != null || !!r.startPhoto || !!r.endPhoto || (r.points||[]).some(p=>p!=null);
+  return r.startKm != null || r.endKm != null || !!r.startPhoto || !!r.endPhoto || (r.points||[]).some(p=>p!=null) || hasProject(r);
 }
 function dataDates(){ return Object.keys(db.days).filter(d=>hasData(db.days[d])); }
 
@@ -973,6 +1007,10 @@ document.getElementById('calDlg').addEventListener('cancel', e=>{ e.preventDefau
 // ---------- form <-> data ----------
 function loadDayIntoForm(){
   const rec = curRec();
+  const pj = rec.project || {};
+  document.getElementById('projNumber').value = pj.number || '';
+  document.getElementById('projName').value = pj.name || '';
+  document.getElementById('projManager').value = pj.manager || '';
   document.getElementById('startKm').value = rec.startKm ?? '';
   document.getElementById('endKm').value = rec.endKm ?? '';
   setPhotoPreview('start', rec.startPhoto);
@@ -1585,6 +1623,7 @@ document.getElementById('clearPointsBtn').addEventListener('click', ()=>{
 function mergeIntoDay(ds, src){
   const rec = dayRec(ds);
   ['startKm','endKm','startPhoto','endPhoto'].forEach(k=>{ if(src[k] != null && src[k] !== '') rec[k] = src[k]; });
+  if(hasProject(src)) rec.project = { ...src.project };
   const existing = (rec.points||[]).filter(p=>p!=null);
   const added = (src.points||[]).filter(p=>p!=null);
   rec.points = existing.concat(added).slice(0,5);
@@ -1594,6 +1633,8 @@ document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
   const rec = curRec();
   rec.startKm = document.getElementById('startKm').value === '' ? null : parseFloat(document.getElementById('startKm').value);
   rec.endKm = document.getElementById('endKm').value === '' ? null : parseFloat(document.getElementById('endKm').value);
+
+  rememberProject(rec.project);
 
   if(editingPast){
     // วันเก่าแก้ตรงลงวันนั้นอยู่แล้ว — กด Save = เสร็จแล้วกลับไปหน้า History
@@ -1605,7 +1646,7 @@ document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
     return;
   }
 
-  if(!hasData(rec)){ dlg('Nothing to save', 'Enter your odometer, a photo or a stop first.'); return; }
+  if(!hasData(rec)){ dlg('Nothing to save', 'Enter project information, your odometer, a photo or a stop first.'); return; }
   const today = todayStr();
   const overflow = mergeIntoDay(today, rec);
   db.draft = null;           // ล้างหน้า Today
@@ -1634,6 +1675,125 @@ document.getElementById('viewRouteBtn').addEventListener('click', ()=>{
   const url = buildRouteUrl(pts);
   if(url) window.open(url, '_blank');
 });
+
+// ---------- project information ----------
+// ข้อมูลโปรเจกต์ของแต่ละวันเก็บใน rec.project = {number, name, manager}
+// db.projects = รายชื่อโปรเจกต์ที่เคยกรอก (key = project number) — ชื่อและ PM ผูกกับเลขโปรเจกต์เสมอ
+function normProjNumber(v){ return String(v ?? '').toUpperCase().trim(); }
+function hasProject(r){
+  const p = r && r.project;
+  return !!(p && (p.number || p.name || p.manager));
+}
+function projectRegistry(){
+  if(!db.projects || typeof db.projects !== 'object') db.projects = {};
+  return db.projects;
+}
+// บันทึก/อัปเดตเข้า registry ตอนกด Save (ไม่ทำระหว่างพิมพ์ จะได้ไม่เกิดเลขโปรเจกต์ครึ่งๆ กลางๆ)
+function rememberProject(p){
+  if(!p || !p.number) return;
+  projectRegistry()[p.number] = { name:p.name || '', manager:p.manager || '' };
+}
+function setProjectField(field, value){
+  const rec = curRec();
+  const p = { number:'', name:'', manager:'', ...(rec.project || {}) };
+  p[field] = value;
+  if(p.number || p.name || p.manager) rec.project = p; else delete rec.project;
+  saveDB();
+}
+function fillProject(number){
+  const info = projectRegistry()[number];
+  if(!info) return;
+  document.getElementById('projNumber').value = number;
+  document.getElementById('projName').value = info.name;
+  document.getElementById('projManager').value = info.manager;
+  setProjectField('number', number);
+  setProjectField('name', info.name);
+  setProjectField('manager', info.manager);
+}
+(function initProjectFields(){
+  const numIn = document.getElementById('projNumber');
+  const nameIn = document.getElementById('projName');
+  const pmIn = document.getElementById('projManager');
+  const dd = document.getElementById('projDd');
+  let items = [], active = -1, touchingDd = false;
+  const close = ()=>{ dd.classList.remove('open'); active = -1; };
+  const render = ()=>{
+    const q = normProjNumber(numIn.value);
+    const reg = projectRegistry();
+    items = Object.keys(reg).filter(n=>!q || n.includes(q)).sort((a,b)=>{
+      // ขึ้นต้นด้วยคำที่พิมพ์มาก่อน
+      const pa = a.startsWith(q) ? 0 : 1, pb = b.startsWith(q) ? 0 : 1;
+      return pa - pb || a.localeCompare(b);
+    });
+    // พิมพ์ตรงกับโปรเจกต์ที่มีอยู่แล้วและเลือกไว้แล้ว ไม่ต้องโชว์รายการซ้ำ
+    if(!items.length || (items.length === 1 && items[0] === q && nameIn.value === reg[q].name && pmIn.value === reg[q].manager)){ close(); return; }
+    if(active >= items.length) active = items.length - 1;
+    dd.innerHTML = items.map((n,k)=>{
+      const sub = [reg[n].name, reg[n].manager].filter(Boolean).join(' · ');
+      return `<div class="dd-item${k===active?' active':''}" data-k="${k}">
+        <div class="dd-text"><div class="dd-main">${escHtml(n)}</div>${sub ? `<div class="dd-sub">${escHtml(sub)}</div>` : ''}</div>
+        <button class="dd-del" data-del="${k}" title="Remove from list">Remove</button>
+      </div>`;
+    }).join('');
+    dd.classList.add('open');
+    dd.querySelectorAll('[data-k]').forEach(el=>{
+      el.addEventListener('mousedown', e=>e.preventDefault());
+      el.addEventListener('click', e=>{
+        e.preventDefault();
+        const del = e.target.closest('[data-del]');
+        const n = items[parseInt(el.dataset.k)];
+        if(del){
+          if(confirm(`Remove ${n} from the project list? Days already saved keep their project info.`)){
+            delete projectRegistry()[n]; saveDB(); render();
+          }
+          return;
+        }
+        choose(n);
+      });
+    });
+  };
+  const choose = n=>{ if(!n) return; fillProject(n); close(); nameIn.blur(); numIn.blur(); };
+
+  numIn.addEventListener('input', ()=>{
+    // เปลี่ยนเป็นตัวพิมพ์ใหญ่เสมอ (คงตำแหน่งเคอร์เซอร์ไว้)
+    const pos = numIn.selectionStart, up = numIn.value.toUpperCase();
+    if(up !== numIn.value){ numIn.value = up; try{ numIn.setSelectionRange(pos, pos); }catch(e){} }
+    setProjectField('number', normProjNumber(numIn.value));
+    active = -1; render();
+  });
+  let numAtFocus = '';
+  numIn.addEventListener('focus', ()=>{ numAtFocus = normProjNumber(numIn.value); render(); });
+  numIn.addEventListener('keydown', e=>{
+    if(!dd.classList.contains('open') || !items.length){
+      if(e.key === 'Enter'){ e.preventDefault(); nameIn.focus(); }
+      return;
+    }
+    if(e.key === 'ArrowDown'){ e.preventDefault(); active = Math.min(items.length-1, active+1); render(); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); active = Math.max(0, active-1); render(); }
+    else if(e.key === 'Enter'){ e.preventDefault(); if(active >= 0) choose(items[active]); else { close(); nameIn.focus(); } }
+    else if(e.key === 'Escape'){ close(); }
+  });
+  dd.addEventListener('touchstart', ()=>{ touchingDd = true; }, {passive:true});
+  dd.addEventListener('touchend', ()=>{ setTimeout(()=>{ touchingDd = false; }, 400); }, {passive:true});
+  numIn.addEventListener('blur', ()=>setTimeout(()=>{
+    if(touchingDd) return;
+    close();
+    // พิมพ์เลขที่มีอยู่แล้วครบ แต่ไม่ได้แตะเลือก -> เติมชื่อและ PM ของเลขนั้นให้
+    const n = normProjNumber(numIn.value);
+    if(numIn.value !== n){ numIn.value = n; setProjectField('number', n); }
+    if(projectRegistry()[n] && (n !== numAtFocus || (!nameIn.value.trim() && !pmIn.value.trim()))) fillProject(n);
+    numAtFocus = n;
+  }, 200));
+  document.addEventListener('pointerdown', e=>{
+    if(!dd.classList.contains('open')) return;
+    if(e.target === numIn || dd.contains(e.target)) return;
+    close();
+  });
+  nameIn.addEventListener('input', ()=>setProjectField('name', nameIn.value));
+  pmIn.addEventListener('input', ()=>setProjectField('manager', pmIn.value));
+  nameIn.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); pmIn.focus(); } });
+  pmIn.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); pmIn.blur(); } });
+})();
 
 // ---------- history ----------
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -1687,7 +1847,7 @@ function renderHistory(){
     const distTxt = dist==null ? '—' : dist.toLocaleString(undefined,{maximumFractionDigits:1})+' km';
     const ptsCount = (r.points||[]).filter(p=>p!=null).length;
     return `<div class="history-item" data-day="${d}">
-      <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}</span></div>
+      <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${r.project && r.project.number ? escHtml(r.project.number)+' · ' : ''}${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}</span></div>
       <div class="actions">
         <button class="icon-btn" data-edit="${d}">Edit</button>
         <button class="icon-btn del" data-del="${d}">Delete</button>
