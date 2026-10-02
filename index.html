@@ -81,22 +81,35 @@
   .theme-toggle input:checked + .switch{ background:var(--green); }
   .theme-toggle input:checked + .switch::after{ transform:translateX(20px); }
 
-  /* segmented control */
-  .tabbar{ display:flex; gap:2px; background:var(--fill); border-radius:9px; padding:2px; margin-bottom:4px; }
-  .tab-btn{
-    flex:1; padding:7px 10px; border:none; border-radius:7px; background:transparent; color:var(--text);
-    font-family:var(--sans); font-size:13px; font-weight:500; cursor:pointer; transition:background .2s, box-shadow .2s;
-  }
-  /* segmented control: แถบขาวเลื่อนไปมาแบบ iOS */
-  .tabbar{ position:relative; }
-  .tab-btn{ position:relative; z-index:1; }
-  .tab-btn.active{ font-weight:600; }
-  .tab-indicator{ position:absolute; top:2px; bottom:2px; left:2px; width:calc(50% - 3px); border-radius:7px;
-    background:var(--panel); box-shadow:0 3px 8px rgba(0,0,0,0.12), 0 3px 1px rgba(0,0,0,0.04);
-    transition:transform .5s cubic-bezier(.25,.8,.25,1), background-color .3s ease; }
-  .tabbar.on-history .tab-indicator{ transform:translateX(calc(100% + 2px)); }
-  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tab-indicator{ background:#636366; } }
-  :root[data-theme="dark"] .tab-indicator{ background:#636366; }
+  /* เมนูแบบลิ้นชักเลื่อนออกมาจากด้านซ้าย */
+  .menu-btn{ width:40px; height:40px; margin:0 6px 2px -8px; border:none; background:none; color:var(--accent);
+    border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+  .menu-btn svg{ width:24px; height:24px; }
+  .menu-btn:active{ background:var(--fill); }
+  header.top .title-wrap{ display:flex; align-items:flex-end; min-width:0; }
+  .page-title{ font-size:13px; font-weight:600; color:var(--accent); text-transform:uppercase; letter-spacing:.02em; margin:0 4px 2px; }
+  .drawer-backdrop{ position:fixed; inset:0; z-index:100; background:rgba(0,0,0,.35);
+    opacity:0; pointer-events:none; transition:opacity .3s ease; }
+  .drawer{ position:fixed; top:0; bottom:0; left:0; z-index:101; width:min(290px, 82vw);
+    background:var(--panel); box-shadow:4px 0 30px rgba(0,0,0,.2);
+    padding:calc(22px + env(safe-area-inset-top)) 12px calc(20px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; gap:4px;
+    transform:translateX(-105%); transition:transform .38s cubic-bezier(.22,.8,.22,1); visibility:hidden; }
+  body.drawer-open .drawer{ transform:none; visibility:visible; }
+  body.drawer-open .drawer-backdrop{ opacity:1; pointer-events:auto; }
+  body.drawer-open{ overflow:hidden; }
+  .drawer-head{ display:flex; align-items:center; justify-content:space-between; padding:0 6px 14px; margin-bottom:6px; border-bottom:0.5px solid var(--line); }
+  .drawer-head .t{ font-size:22px; font-weight:700; letter-spacing:-0.02em; }
+  .drawer-close{ width:34px; height:34px; border:none; border-radius:50%; background:var(--fill); color:var(--muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .drawer-close svg{ width:16px; height:16px; }
+  .drawer .tab-btn{ display:flex; align-items:center; gap:14px; width:100%; text-align:left;
+    padding:12px 12px; border:none; border-radius:10px; background:transparent; color:var(--text);
+    font-family:var(--sans); font-size:17px; font-weight:500; cursor:pointer; }
+  .drawer .tab-btn svg{ width:22px; height:22px; color:var(--accent); flex-shrink:0; }
+  .drawer .tab-btn.active{ background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); font-weight:600; }
+  @media (prefers-reduced-motion: reduce){ .drawer, .drawer-backdrop{ transition:none !important; } }
+
 
   /* เปลี่ยนหน้าแบบเลื่อน+จางเข้า */
   @keyframes viewIn{ from{ opacity:0; transform:translateX(var(--dx, 0px)) translateY(var(--dy, 0px)); } to{ opacity:1; transform:none; } }
@@ -119,7 +132,7 @@
   .icon-btn.del.pressable{ --glow:color-mix(in srgb, var(--red) 40%, transparent); --glow-flat:color-mix(in srgb, var(--red) 15%, transparent); }
   .cal-day.sel.pressable{ --glow:rgba(255,255,255,.5); --glow-flat:rgba(255,255,255,.2); }
   @media (prefers-reduced-motion: reduce){ .pressable, .pressable::after{ transition:none !important; } }
-  @media (prefers-reduced-motion: reduce){ .view-in, .tab-indicator, dialog[open], dialog.closing{ animation:none !important; transition:none !important; } }
+  @media (prefers-reduced-motion: reduce){ .view-in, dialog[open], dialog.closing{ animation:none !important; transition:none !important; } }
 
   .datebar{ display:flex; align-items:center; gap:8px; margin:4px 0 12px; }
   .day-nav{ width:36px; height:36px; border-radius:50%; border:none; background:var(--fill); color:var(--accent);
@@ -277,6 +290,13 @@
     color:var(--text); font-family:var(--sans); font-size:16px; padding:10px 12px;
   }
   .proj-field input::placeholder{ color:var(--muted); }
+  .proj-input{ position:relative; }
+  .proj-field .proj-input input{ padding-right:40px; }
+  .proj-clear{ position:absolute; top:50%; right:6px; transform:translateY(-50%); width:30px; height:30px;
+    display:none; align-items:center; justify-content:center; background:none; border:none; padding:0;
+    color:var(--muted); cursor:pointer; opacity:.85; }
+  .proj-clear.show{ display:flex; }
+  .proj-clear svg{ width:18px; height:18px; }
   #projNumber{ text-transform:uppercase; letter-spacing:.02em; }
   #projNumber::placeholder{ text-transform:none; letter-spacing:0; }
   #projDd{ right:0; }
@@ -354,12 +374,32 @@
 </style>
 </head>
 <body>
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+<nav class="drawer" id="drawer" aria-label="Menu" aria-hidden="true">
+  <div class="drawer-head">
+    <span class="t">Menu</span>
+    <button class="drawer-close" id="drawerClose" aria-label="Close menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <button class="tab-btn active" id="tabBtnToday" data-tab="today">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
+    Home
+  </button>
+  <button class="tab-btn" id="tabBtnHistory" data-tab="history">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+    History
+  </button>
+</nav>
 <div class="wrap">
 
   <header class="top">
-    <div>
-      <div class="odo" id="headerDate"></div>
-      <h1>Mileage Log</h1>
+    <div class="title-wrap">
+      <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-controls="drawer" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div>
+        <div class="odo" id="headerDate"></div>
+        <h1>Mileage Log</h1>
+      </div>
     </div>
     <label class="theme-toggle" title="Dark mode">
       <span class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
@@ -368,11 +408,7 @@
     </label>
   </header>
 
-  <div class="tabbar" id="tabbar">
-    <span class="tab-indicator"></span>
-    <button class="tab-btn active" id="tabBtnToday" data-tab="today">Home</button>
-    <button class="tab-btn" id="tabBtnHistory" data-tab="history">History</button>
-  </div>
+  <div class="page-title" id="pageTitle">Home</div>
 
   <div id="tabToday" style="padding-top:18px;">
   <div class="datebar" id="dateBar" style="display:none;">
@@ -393,18 +429,25 @@
     <h2>Project information</h2>
     <div class="proj-field">
       <label for="projNumber">Project number</label>
-      <div class="place-search">
+      <div class="place-search proj-input">
         <input type="text" id="projNumber" placeholder="Project number" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next">
+        <button type="button" class="proj-clear" data-clear-for="projNumber" aria-label="Clear project number"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
         <div class="place-dd" id="projDd"></div>
       </div>
     </div>
     <div class="proj-field">
       <label for="projName">Project name</label>
-      <input type="text" id="projName" placeholder="Project name" autocomplete="off" enterkeyhint="next">
+      <div class="proj-input">
+        <input type="text" id="projName" placeholder="Project name" autocomplete="off" enterkeyhint="next">
+        <button type="button" class="proj-clear" data-clear-for="projName" aria-label="Clear project name"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+      </div>
     </div>
     <div class="proj-field">
       <label for="projManager">Project Manager</label>
-      <input type="text" id="projManager" placeholder="Project Manager" autocomplete="off" enterkeyhint="done">
+      <div class="proj-input">
+        <input type="text" id="projManager" placeholder="Project Manager" autocomplete="off" enterkeyhint="done">
+        <button type="button" class="proj-clear" data-clear-for="projManager" aria-label="Clear project manager"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.7 12.3a1 1 0 0 1-1.4 1.4L12 13.4l-2.3 2.3a1 1 0 0 1-1.4-1.4l2.3-2.3-2.3-2.3a1 1 0 0 1 1.4-1.4l2.3 2.3 2.3-2.3a1 1 0 0 1 1.4 1.4L13.4 12z"/></svg></button>
+      </div>
     </div>
   </div>
 
@@ -851,8 +894,30 @@ const PRESSABLE = '.btn, .icon-btn, .day-nav, .date-pill, .slot-icon-btn, .cal-n
 function setActiveTab(name){
   document.getElementById('tabBtnToday').classList.toggle('active', name==='today');
   document.getElementById('tabBtnHistory').classList.toggle('active', name==='history');
-  document.getElementById('tabbar').classList.toggle('on-history', name==='history');
+  document.getElementById('pageTitle').textContent = name==='history' ? 'History' : 'Home';
 }
+// ---------- side drawer menu ----------
+function setDrawer(open){
+  document.body.classList.toggle('drawer-open', open);
+  document.getElementById('drawer').setAttribute('aria-hidden', open ? 'false' : 'true');
+  document.getElementById('menuBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+document.getElementById('menuBtn').addEventListener('click', ()=>setDrawer(true));
+document.getElementById('drawerClose').addEventListener('click', ()=>setDrawer(false));
+document.getElementById('drawerBackdrop').addEventListener('click', ()=>setDrawer(false));
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && document.body.classList.contains('drawer-open')) setDrawer(false); });
+// ปัดไปทางซ้ายบนลิ้นชักเพื่อปิด
+(function(){
+  const dr = document.getElementById('drawer');
+  let x0 = null, y0 = 0;
+  dr.addEventListener('touchstart', e=>{ x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, {passive:true});
+  dr.addEventListener('touchend', e=>{
+    if(x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    if(dx < -50 && Math.abs(dx) > Math.abs(dy)) setDrawer(false);
+    x0 = null;
+  }, {passive:true});
+})();
 // แสดง el แบบเลื่อน/จางเข้า (dx: + มาจากขวา, - มาจากซ้าย; dy: เลื่อนขึ้นเล็กน้อย)
 function animateIn(el, dx, dy){
   el.classList.remove('view-in');
@@ -1011,6 +1076,7 @@ function loadDayIntoForm(){
   document.getElementById('projNumber').value = pj.number || '';
   document.getElementById('projName').value = pj.name || '';
   document.getElementById('projManager').value = pj.manager || '';
+  syncProjClears();
   document.getElementById('startKm').value = rec.startKm ?? '';
   document.getElementById('endKm').value = rec.endKm ?? '';
   setPhotoPreview('start', rec.startPhoto);
@@ -1693,6 +1759,12 @@ function rememberProject(p){
   if(!p || !p.number) return;
   projectRegistry()[p.number] = { name:p.name || '', manager:p.manager || '' };
 }
+// แสดงปุ่ม ⓧ เฉพาะช่องที่มีข้อความ
+function syncProjClears(){
+  document.querySelectorAll('.proj-clear').forEach(b=>{
+    b.classList.toggle('show', document.getElementById(b.dataset.clearFor).value !== '');
+  });
+}
 function setProjectField(field, value){
   const rec = curRec();
   const p = { number:'', name:'', manager:'', ...(rec.project || {}) };
@@ -1706,6 +1778,7 @@ function fillProject(number){
   document.getElementById('projNumber').value = number;
   document.getElementById('projName').value = info.name;
   document.getElementById('projManager').value = info.manager;
+  syncProjClears();
   setProjectField('number', number);
   setProjectField('name', info.name);
   setProjectField('manager', info.manager);
@@ -1791,6 +1864,17 @@ function fillProject(number){
   });
   nameIn.addEventListener('input', ()=>setProjectField('name', nameIn.value));
   pmIn.addEventListener('input', ()=>setProjectField('manager', pmIn.value));
+  [numIn, nameIn, pmIn].forEach(inp=>inp.addEventListener('input', syncProjClears));
+  document.querySelectorAll('.proj-clear').forEach(b=>{
+    b.addEventListener('mousedown', e=>e.preventDefault()); // ไม่ให้ช่องเสีย focus (คีย์บอร์ดไม่หุบ)
+    b.addEventListener('click', ()=>{
+      const inp = document.getElementById(b.dataset.clearFor);
+      inp.value = '';
+      if(inp === numIn) numAtFocus = '';
+      inp.dispatchEvent(new Event('input', {bubbles:true}));
+      inp.focus();
+    });
+  });
   nameIn.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); pmIn.focus(); } });
   pmIn.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); pmIn.blur(); } });
 })();
@@ -2684,8 +2768,8 @@ function switchTab(name){
   }
   swapView(document.getElementById('tabToday'), hist, 28, ()=>{ renderHistory(); refreshMonthSelect(); });
 }
-document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
-document.getElementById('tabBtnHistory').addEventListener('click', ()=>switchTab('history'));
+document.getElementById('tabBtnToday').addEventListener('click', ()=>{ setDrawer(false); switchTab('today'); });
+document.getElementById('tabBtnHistory').addEventListener('click', ()=>{ setDrawer(false); switchTab('history'); });
 
 loadDayIntoForm();
 renderHistory();
