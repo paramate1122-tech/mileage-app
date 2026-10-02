@@ -320,6 +320,10 @@
   #pdNumber::placeholder{ text-transform:none; letter-spacing:0; }
   .pd-err{ font-size:13px; color:var(--red); min-height:16px; margin-top:6px; }
   .proj-item .d .num{ font-weight:600; letter-spacing:.01em; }
+  .proj-item .src-tag{ display:inline-block; margin-left:6px; padding:1px 6px; border-radius:6px; font-size:11px; font-weight:600;
+    color:var(--accent); background:var(--fill); vertical-align:2px; }
+  #sheetStatus{ font-size:13px; color:var(--muted); min-height:16px; margin-top:8px; }
+  #sheetStatus.err{ color:var(--red); }
   #projNumber{ text-transform:uppercase; letter-spacing:.02em; }
   #projNumber::placeholder{ text-transform:none; letter-spacing:0; }
   #projDd{ right:0; }
@@ -540,6 +544,12 @@
     </button>
     <div id="projectList"></div>
     <div class="hint">Projects here appear in the Project number list on Home. Only projects saved here can be used on Home. Tap a project to edit it — days that use it are updated too.</div>
+  </div>
+  <div class="card">
+    <h2>Shared project list (Google Sheet)</h2>
+    <button class="btn btn-ghost btn-sm" id="sheetSyncBtn" style="width:100%;">Sync now</button>
+    <div id="sheetStatus"></div>
+    <div class="hint" id="sheetHint"></div>
   </div>
   </div>
 
@@ -1949,7 +1959,7 @@ function renderProjects(){
     const sub = [reg[n].name, fmtPM(reg[n])].filter(Boolean).join(' · ') || '—';
     const days = projectDayCount(n);
     return `<div class="history-item proj-item" data-proj="${escHtml(n)}">
-      <div class="d"><span class="num">${escHtml(n)}</span><span class="dist">${escHtml(sub)}${days ? ' · '+days+(days>1?' days':' day') : ''}</span></div>
+      <div class="d"><span class="num">${escHtml(n)}</span>${reg[n].src === 'sheet' ? '<span class="src-tag">Sheet</span>' : ''}<span class="dist">${escHtml(sub)}${days ? ' · '+days+(days>1?' days':' day') : ''}</span></div>
       <div class="actions">
         <button class="icon-btn" data-pedit="${escHtml(n)}">Edit</button>
         <button class="icon-btn del" data-pdel="${escHtml(n)}">Delete</button>
@@ -1962,8 +1972,10 @@ function renderProjects(){
   list.querySelectorAll('[data-pdel]').forEach(b=>b.onclick = e=>{
     e.stopPropagation();
     const n = b.dataset.pdel;
-    if(confirm(`Delete project ${n}? Days already saved keep their project info.`)){
+    const shared = SHEET_API_URL ? ' It is also removed from the shared Google Sheet for everyone.' : '';
+    if(confirm(`Delete project ${n}? Days already saved keep their project info.${shared}`)){
       delete projectRegistry()[n]; saveDB(); renderProjects();
+      queueSheetOp({ action:'delete', number:n });
     }
   });
 }
@@ -2056,15 +2068,199 @@ document.getElementById('pdSave').addEventListener('click', ()=>{
   const reg = projectRegistry();
   if(n !== _editingProj && reg[n]){ err.textContent = `${n} already exists.`; return; }
   if(_editingProj && _editingProj !== n) delete reg[_editingProj];
-  reg[n] = { name, manager, nickname };
+  reg[n] = SHEET_API_URL ? { name, manager, nickname, src:'sheet' } : { name, manager, nickname };
   // ชื่อ/PM/ชื่อเล่น ผูกกับเลขโปรเจกต์ — อัปเดตทุกวันที่ใช้โปรเจกต์นี้ให้ตรงกัน
   const matchNum = _editingProj || n;
+  const oldNum = _editingProj && _editingProj !== n ? _editingProj : '';
   allRecs().forEach(r=>{ if(r.project && r.project.number === matchNum) r.project = { number:n, name, manager, nickname }; });
   saveDB();
   loadDayIntoForm();
   renderProjects();
   closeDialogSmooth(document.getElementById('projDlg'));
+  queueSheetOp({ action:'upsert', number:n, oldNumber:oldNum, name, manager, nickname });
 });
+
+// ---------- shared project list (Google Sheet) ----------
+// รายชื่อโปรเจกต์กลางอยู่ใน Google Sheet ของทีม — ดึงมารวมกับรายชื่อในเครื่อง
+// SHEET_API_URL = Google Apps Script web app (apps-script/Code.gs) ใช้ทั้งอ่านและเขียน (เพิ่ม/แก้/ลบ)
+// ถ้ายังไม่มี SHEET_API_URL จะอ่านอย่างเดียวจาก SHARED_SHEET_URL (ต้องแชร์แบบ Anyone with the link can view)
+// โปรเจกต์ที่มาจาก Sheet มี src:'sheet' — ถ้าลบออกจาก Sheet ก็ลบออกจากเครื่องตอนซิงก์ครั้งถัดไป
+// ข้อมูลไมล์/ทางด่วน/รูป ไม่ถูกส่งไปไหน ยังอยู่ในเครื่องเหมือนเดิม
+const SHARED_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1MQJ41btHVZE2Y0qw3H-esGuLgMYOcFl7M8PVcp52Iu8/edit';
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbw-2dWyl6Xlic8FZ984VOJMLTy43HLjtrYEuDrlWQm5OxuGYxMmZv-FwHxTHOnOptfzsA/exec';
+const SHEET_AUTO_SYNC_MS = 30*60*1000;
+function sheetCsvUrl(link){
+  let u;
+  try{ u = new URL(String(link||'').trim()); }catch(e){ return ''; }
+  if(u.hostname !== 'docs.google.com') return '';
+  const gid = u.searchParams.get('gid') || (u.hash.match(/gid=(\d+)/) || [])[1] || '';
+  const pub = u.pathname.match(/^\/spreadsheets\/d\/e\/([^/]+)\/pub/);
+  if(pub) return `https://docs.google.com/spreadsheets/d/e/${pub[1]}/pub?output=csv${gid ? '&single=true&gid='+encodeURIComponent(gid) : ''}`;
+  const m = u.pathname.match(/^\/spreadsheets\/d\/([^/]+)/);
+  if(m) return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv&headers=1${gid ? '&gid='+encodeURIComponent(gid) : ''}`;
+  return '';
+}
+function parseCsv(text){
+  const rows = []; let row = [], f = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for(let i=0; i<text.length; i++){
+    const c = text[i];
+    if(q){
+      if(c === '"'){ if(text[i+1] === '"'){ f += '"'; i++; } else q = false; }
+      else f += c;
+    }
+    else if(c === '"') q = true;
+    else if(c === ','){ row.push(f); f = ''; }
+    else if(c === '\n' || c === '\r'){
+      if(c === '\r' && text[i+1] === '\n') i++;
+      row.push(f); rows.push(row); row = []; f = '';
+    }
+    else f += c;
+  }
+  if(f !== '' || row.length){ row.push(f); rows.push(row); }
+  return rows;
+}
+// หาคอลัมน์จากหัวตาราง (แถวที่ 1) — ไม่เจอให้ใช้ A–D ตามลำดับ
+function sheetColumns(header){
+  const h = header.map(v=>String(v||'').toLowerCase().replace(/[^a-z0-9฀-๿]/g, ''));
+  const find = keys=>h.findIndex(v=>keys.includes(v));
+  const col = {
+    number: find(['projectnumber','projectno','projno','projectcode','number','no','เลขโปรเจกต์','เลขโปรเจค']),
+    name: find(['projectname','name','ชื่อโปรเจกต์','ชื่อโปรเจค']),
+    manager: find(['projectmanager','manager','pm']),
+    nickname: find(['nickname','ชื่อเล่น']),
+  };
+  if(col.number < 0) return { number:0, name:1, manager:2, nickname:3 };
+  return col;
+}
+async function fetchSheetProjects(){
+  const incoming = {};
+  const add = p=>{
+    const n = normProjNumber(p.number);
+    if(n) incoming[n] = { name:String(p.name||'').trim(), manager:String(p.manager||'').trim(), nickname:String(p.nickname||'').trim(), src:'sheet' };
+  };
+  let res;
+  if(SHEET_API_URL){
+    try{ res = await fetch(SHEET_API_URL, { cache:'no-store' }); }
+    catch(e){ throw new Error('Could not reach Google Sheets. Check the internet connection.'); }
+    if(!res.ok) throw new Error(`Google Sheets returned an error (${res.status}).`);
+    let data;
+    try{ data = await res.json(); }catch(e){ throw new Error('Unexpected reply from Google Sheets. Check the Apps Script deployment (Who has access: Anyone).'); }
+    if(!data.ok) throw new Error(data.error || 'Google Sheets returned an error.');
+    (data.projects || []).forEach(add);
+    return incoming;
+  }
+  const url = sheetCsvUrl(SHARED_SHEET_URL);
+  try{ res = await fetch(url, { cache:'no-store' }); }
+  catch(e){ throw new Error('Could not reach Google Sheets. Check the internet connection, and that the sheet is shared as “Anyone with the link can view”.'); }
+  if(!res.ok) throw new Error(`Google Sheets returned an error (${res.status}). Check that the sheet is shared as “Anyone with the link can view”.`);
+  const text = await res.text();
+  if(/^\s*</.test(text)) throw new Error('The sheet is not shared. Set it to “Anyone with the link can view”.');
+  const rows = parseCsv(text);
+  const col = sheetColumns(rows[0] || []);
+  const cell = (r, k)=>col[k] >= 0 ? r[col[k]] : '';
+  rows.slice(1).forEach(r=>add({ number:cell(r,'number'), name:cell(r,'name'), manager:cell(r,'manager'), nickname:cell(r,'nickname') }));
+  // อ่านผ่านลิงก์แชร์แล้วว่าง = น่าจะผิดแผ่น/ผิดลิงก์ — ไม่ลบรายชื่อในเครื่องทิ้ง
+  if(!Object.keys(incoming).length) throw new Error('No projects found in the sheet. Put project numbers in column A (row 1 = headers).');
+  return incoming;
+}
+// การเพิ่ม/แก้/ลบ ที่ยังไม่ได้ส่งขึ้น Sheet (เช่น ตอนไม่มีเน็ต) — ส่งก่อนดึงข้อมูลทุกครั้ง
+function sheetQueue(){
+  if(!Array.isArray(db.sheetPending)) db.sheetPending = [];
+  return db.sheetPending;
+}
+function queueSheetOp(op){
+  if(!SHEET_API_URL) return;
+  sheetQueue().push(op);
+  saveDB();
+  syncProjectSheet();
+}
+async function flushSheetQueue(){
+  const q = sheetQueue();
+  while(q.length){
+    let res, data;
+    try{
+      // text/plain = ไม่ต้องมี preflight (Apps Script ไม่รองรับ OPTIONS)
+      res = await fetch(SHEET_API_URL, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body:JSON.stringify(q[0]) });
+      data = await res.json();
+    }catch(e){ throw new Error(`Could not update the Google Sheet (${q.length} change${q.length>1?'s':''} waiting). Will retry automatically.`); }
+    if(!data || !data.ok) throw new Error(`Google Sheet rejected a change: ${data && data.error || 'unknown error'}. ${q.length} change${q.length>1?'s':''} waiting.`);
+    q.shift();
+    saveDB();
+  }
+}
+function setSheetStatus(text, isErr){
+  const el = document.getElementById('sheetStatus');
+  el.textContent = text || '';
+  el.classList.toggle('err', !!isErr);
+}
+function fmtSyncTime(ts){
+  const d = new Date(ts), pad = v=>String(v).padStart(2,'0');
+  return `${fmtDateTH(d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()))} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function showSheetInfo(){
+  const st = db.projectSheet || {};
+  document.getElementById('sheetHint').textContent = 'Projects are shared with everyone through the team Google Sheet and update automatically when the app opens. '
+    + (SHEET_API_URL ? 'Adding, editing or deleting a project here also changes the sheet. ' : 'To add or change a shared project, edit the sheet. ')
+    + 'Your miles, tolls and photos stay on this device only.';
+  if(st.error) setSheetStatus(st.error, true);
+  else if(st.lastSync) setSheetStatus(`Last synced ${fmtSyncTime(st.lastSync)} · ${st.count} project${st.count === 1 ? '' : 's'}`);
+  else setSheetStatus('Not synced yet');
+}
+let _sheetSyncing = null;
+function syncProjectSheet(){
+  if(_sheetSyncing) return _sheetSyncing.then(()=>syncProjectSheet());
+  _sheetSyncing = (async ()=>{
+    if(!db.projectSheet || typeof db.projectSheet !== 'object') db.projectSheet = {};
+    const st = db.projectSheet;
+    try{
+      if(SHEET_API_URL) await flushSheetQueue();
+      const incoming = await fetchSheetProjects();
+      const reg = projectRegistry();
+      Object.keys(reg).forEach(n=>{ if(reg[n].src === 'sheet' && !incoming[n]) delete reg[n]; });
+      // โปรเจกต์ที่มีแค่ในเครื่อง (สร้างก่อนเชื่อม Sheet) — ส่งขึ้น Sheet ให้คนอื่นใช้ได้ด้วย
+      const localOnly = SHEET_API_URL ? Object.keys(reg).filter(n=>!reg[n].src && !incoming[n]) : [];
+      Object.keys(incoming).forEach(n=>{ reg[n] = incoming[n]; });
+      // ชื่อ/PM/ชื่อเล่นผูกกับเลขโปรเจกต์ — วันที่ใช้โปรเจกต์นั้นอัปเดตตาม (เหมือนแก้ในหน้า Project)
+      allRecs().forEach(r=>{
+        const info = r.project && incoming[r.project.number];
+        if(info) r.project = { number:r.project.number, name:info.name, manager:info.manager, nickname:info.nickname };
+      });
+      st.lastSync = Date.now(); st.count = Object.keys(incoming).length; delete st.error;
+      saveDB();
+      loadDayIntoForm();
+      if(localOnly.length){
+        localOnly.forEach(n=>{ const r = reg[n]; r.src = 'sheet'; sheetQueue().push({ action:'upsert', number:n, name:r.name||'', manager:r.manager||'', nickname:r.nickname||'' }); });
+        saveDB();
+        setTimeout(syncProjectSheet, 0);
+      }
+      return true;
+    }catch(e){
+      console.error('sheet sync failed', e);
+      st.error = e.message || 'Sync failed.';
+      saveDB();
+      return false;
+    }finally{
+      if(document.getElementById('tabProject').style.display !== 'none') renderProjects();
+      showSheetInfo();
+    }
+  })().finally(()=>{ _sheetSyncing = null; });
+  return _sheetSyncing;
+}
+function autoSyncProjectSheet(){
+  const st = db.projectSheet || {};
+  if(navigator.onLine === false) return;
+  if(st.lastSync && Date.now() - st.lastSync < SHEET_AUTO_SYNC_MS && !st.error && !sheetQueue().length) return;
+  syncProjectSheet();
+}
+document.getElementById('sheetSyncBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('sheetSyncBtn');
+  btn.disabled = true; setSheetStatus('Syncing…');
+  await syncProjectSheet();
+  btn.disabled = false;
+});
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') autoSyncProjectSheet(); });
+window.addEventListener('online', autoSyncProjectSheet);
 
 // ---------- history ----------
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -3252,7 +3448,7 @@ function switchTab(name){
   if(name === 'today'){ openToday(); return; }
   if(editingPast){ editingPast = false; currentDate = todayStr(); }
   if(name === 'history') goView('history', ()=>{ renderHistory(); refreshMonthSelect(); });
-  else goView('project', renderProjects);
+  else goView('project', ()=>{ renderProjects(); showSheetInfo(); });
 }
 document.getElementById('tabBtnToday').addEventListener('click', ()=>switchTab('today'));
 document.getElementById('tabBtnProject').addEventListener('click', ()=>switchTab('project'));
@@ -3262,6 +3458,7 @@ loadDayIntoForm();
 renderHistory();
 refreshMonthSelect();
 initPhotoStore();
+autoSyncProjectSheet();
 </script>
 </body>
 </html>
