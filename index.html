@@ -350,6 +350,11 @@
   .history-summary{ font-size:13px; color:var(--muted); margin:4px 2px 2px; font-variant-numeric:tabular-nums; }
   .icon-btn{ background:none; border:none; color:var(--accent); font-size:15px; padding:6px 8px; cursor:pointer; font-family:var(--sans); }
   .icon-btn.del{ color:var(--red); }
+  .icon-btn.ico{ width:38px; height:38px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; }
+  .icon-btn.ico svg{ width:21px; height:21px; }
+  .history-item .actions{ flex-shrink:0; }
+  .cal-purpose{ font-size:13px; color:var(--muted); margin:0 2px 6px; }
+  .cal-purpose:empty{ display:none; }
 
   .footer-actions{ display:flex; flex-direction:column; gap:10px; margin-top:2px; }
   .footer-actions select{
@@ -646,6 +651,7 @@
 
 <dialog id="calDlg">
   <div class="dlg-body">
+    <div class="cal-purpose" id="calPurpose"></div>
     <div class="cal-head">
       <div class="cal-title" id="calTitle"></div>
       <div class="cal-nav">
@@ -1077,9 +1083,10 @@ document.getElementById('addPastBtn').addEventListener('click', ()=>{
 // ---------- in-app calendar ----------
 // เลือกวันด้วยการแตะวันที่ในปฏิทินเท่านั้น (เลื่อนเดือนได้) — ไม่มีอะไรเกิดขึ้นจนกว่าจะแตะวัน
 const calState = { year:0, month:0, selected:null, max:null, onPick:null };
-function openCalendar(selected, max, onPick){
-  const base = parseDate(selected || max);
+function openCalendar(selected, max, onPick, purpose, startFrom){
+  const base = parseDate(selected || startFrom || max);
   Object.assign(calState, { year:base.getFullYear(), month:base.getMonth(), selected, initial:selected, max, onPick });
+  document.getElementById('calPurpose').textContent = purpose || '';
   renderCalendar();
   const dlgEl = document.getElementById('calDlg');
   dlgEl.classList.remove('closing');
@@ -1209,6 +1216,9 @@ function pointSlots(){
   if(!Array.isArray(rec.points)) rec.points = [];
   return rec.points;
 }
+const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/><path d="M18.4 2.6a2 2 0 0 1 2.9 2.9L12 14.8l-3.8.9.9-3.8z"/></svg>';
+const ICON_DEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16"/><path d="M9.5 6.5V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7"/><path d="M6.2 6.5l.9 12.4a2 2 0 0 0 2 1.8h5.8a2 2 0 0 0 2-1.8l.9-12.4"/><path d="M10.2 10.5v6M13.8 10.5v6"/></svg>';
+const ICON_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/></svg>';
 function escHtml(str){
   return String(str ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -1961,8 +1971,8 @@ function renderProjects(){
     return `<div class="history-item proj-item" data-proj="${escHtml(n)}">
       <div class="d"><span class="num">${escHtml(n)}</span>${reg[n].src === 'sheet' ? '<span class="src-tag">Sheet</span>' : ''}<span class="dist">${escHtml(sub)}${days ? ' · '+days+(days>1?' days':' day') : ''}</span></div>
       <div class="actions">
-        <button class="icon-btn" data-pedit="${escHtml(n)}">Edit</button>
-        <button class="icon-btn del" data-pdel="${escHtml(n)}">Delete</button>
+        <button class="icon-btn ico" data-pedit="${escHtml(n)}" aria-label="Edit" title="Edit">${ICON_EDIT}</button>
+        <button class="icon-btn ico del" data-pdel="${escHtml(n)}" aria-label="Delete" title="Delete">${ICON_DEL}</button>
       </div>
     </div>`;
   }).join('');
@@ -2262,6 +2272,34 @@ document.getElementById('sheetSyncBtn').addEventListener('click', async ()=>{
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') autoSyncProjectSheet(); });
 window.addEventListener('online', autoSyncProjectSheet);
 
+// ---------- copy a day's project + route to another day ----------
+// คัดลอกเฉพาะ Project information และจุดแวะ (route) — ไม่เอาเลขไมล์/รูป
+// วันปลายทางที่มีข้อมูลอยู่แล้ว: เลขไมล์/รูปของวันนั้นคงไว้ แทนที่เฉพาะ project + route
+function hasRoute(r){ return !!(r && (r.points||[]).some(p=>p!=null)); }
+function copyDayTo(src){
+  const from = db.days[src];
+  if(!from) return;
+  if(!hasProject(from) && !hasRoute(from)){ dlg('Nothing to copy', `${fmtDateLong(src)} has no project information or route.`); return; }
+  openCalendar(null, todayStr(), ds=>{
+    if(ds === src){ dlg('Same day', 'Pick a different day to copy to.'); return; }
+    const today = todayStr();
+    // วันนี้ที่ยังไม่เคย Save = ใส่ลงฟอร์มหน้า Home (draft) แล้วค่อยใส่เลขไมล์และกด Save ตามปกติ
+    const toDraft = ds === today && !hasData(db.days[today]);
+    const target = toDraft ? (db.draft && db.draft.date === today ? db.draft : null) : db.days[ds];
+    if(target && (hasProject(target) || hasRoute(target))
+      && !confirm(`${fmtDateLong(ds)} already has a project or route. Replace them with the ones from ${fmtDateLong(src)}? Odometer and photos stay as they are.`)) return;
+    if(toDraft) editingPast = false;
+    const rec = toDraft ? curRec() : dayRec(ds);
+    if(hasProject(from)) rec.project = { ...from.project }; else delete rec.project;
+    rec.points = JSON.parse(JSON.stringify(from.points || []));
+    saveDB();
+    renderHistory();
+    refreshMonthSelect();
+    if(toDraft) openToday(); else openPastDay(ds);
+    setTimeout(()=>dlg('Copied', `Project and route copied to ${fmtDateLong(ds)}. Add the odometer, then tap Save.`), 350);
+  }, `Copy project and route from ${fmtDateLong(src)} to…`, src);
+}
+
 // ---------- history ----------
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 function fmtMonthLabel(m){
@@ -2317,20 +2355,25 @@ function renderHistory(){
     return `<div class="history-item" data-day="${d}">
       <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${r.project && r.project.number ? escHtml(r.project.number)+' · ' : ''}${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}${tollTotalForDay(d) ? ' · Tolls ฿'+fmtBaht(tollTotalForDay(d)) : ''}</span></div>
       <div class="actions">
-        <button class="icon-btn" data-edit="${d}">Edit</button>
-        <button class="icon-btn del" data-del="${d}">Delete</button>
+        ${hasProject(r) || hasRoute(r) ? `<button class="icon-btn ico" data-copy="${d}" aria-label="Copy project and route to another day" title="Copy">${ICON_COPY}</button>` : ''}
+        <button class="icon-btn ico" data-edit="${d}" aria-label="Edit" title="Edit">${ICON_EDIT}</button>
+        <button class="icon-btn ico del" data-del="${d}" aria-label="Delete" title="Delete">${ICON_DEL}</button>
       </div>
     </div>`;
   }).join('');
   list.querySelectorAll('.history-item').forEach(row=>{
     row.onclick = (e)=>{
-      if(e.target.closest('[data-del]') || e.target.closest('[data-edit]')) return;
+      if(e.target.closest('[data-del]') || e.target.closest('[data-edit]') || e.target.closest('[data-copy]')) return;
       openPastDay(row.dataset.day);
     };
   });
   list.querySelectorAll('[data-edit]').forEach(b=>b.onclick=(e)=>{
     e.stopPropagation();
     openPastDay(b.dataset.edit);
+  });
+  list.querySelectorAll('[data-copy]').forEach(b=>b.onclick=(e)=>{
+    e.stopPropagation();
+    copyDayTo(b.dataset.copy);
   });
   list.querySelectorAll('[data-del]').forEach(b=>b.onclick=(e)=>{
     e.stopPropagation();
