@@ -2516,8 +2516,8 @@ async function getPdfJs(){
   lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
   return lib;
 }
-// ชื่อไฟล์ export: Mileage_record_MM_YYYY.pdf / reimbursement_MM_YYYY.xlsx
-function exportName(prefix, month, ext){ const [y, m] = month.split('-'); return `${prefix}_${m}_${y}.${ext}`; }
+// ชื่อไฟล์ export: Mileage_record_Sep_2026.pdf / reimbursement_Sep_2026.xlsx
+function exportName(prefix, month, ext){ const [y, m] = month.split('-'); return `${prefix}_${_MO[parseInt(m)-1]}_${y}.${ext}`; }
 function fmtBaht(n){ return Number(n).toLocaleString(undefined, {maximumFractionDigits:2}); }
 function tollMonthData(month){ return db.tolls && db.tolls[month] ? db.tolls[month] : null; }
 function tollPassesForDay(ds){
