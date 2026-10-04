@@ -16,7 +16,6 @@
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
 <script>
   try{ const t = localStorage.getItem('theme'); if(t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; }catch(e){}
 </script>
@@ -608,8 +607,8 @@
     <h2>Export</h2>
     <div class="footer-actions">
       <select id="monthSelect"></select>
-      <button class="btn btn-teal" id="exportExcelBtn">Export Excel (.xlsx)</button>
-      <button class="btn btn-ghost" id="exportWordBtn">Export Word (.docx)</button>
+      <button class="btn btn-teal" id="exportExcelBtn">Export Reimburse Excel</button>
+      <button class="btn btn-ghost" id="exportPdfBtn">Export Mileage Record (PDF)</button>
       <button class="btn btn-ghost" id="exportAllBtn">Export all files (.zip)</button>
       <div class="btn-row">
         <button class="btn btn-ghost btn-sm" id="backupBtn" style="flex:1;">Back up (JSON)</button>
@@ -619,7 +618,7 @@
         </button>
       </div>
     </div>
-    <div class="hint">Excel: fills the expense claim template — project, date, 泰铢, allowance (km × 1.2 × 5), tolls and start–end mileage. Word: one page per day with odometer photos and a Google Maps route image. Export all: Word + Excel + the month’s tolls PDF with matching toll rows highlighted, in one .zip. Data is stored only on this device — back up regularly.</div>
+    <div class="hint">Reimburse Excel: fills the expense claim template — project, date, 泰铢, allowance (km × 1.2 × 5), tolls and start–end mileage. Mileage Record (PDF): one page per day with odometer photos and a Google Maps route image. Export all: Mileage Record PDF + Reimburse Excel + the month’s tolls PDF with matching toll rows highlighted, in one .zip. Data is stored only on this device — back up regularly.</div>
   </div>
 
   </div>
@@ -2517,6 +2516,8 @@ async function getPdfJs(){
   lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
   return lib;
 }
+// ชื่อไฟล์ export: Mileage_record_Sep_2026.pdf / reimbursement_Sep_2026.xlsx
+function exportName(prefix, month, ext){ const [y, m] = month.split('-'); return `${prefix}_${_MO[parseInt(m)-1]}_${y}.${ext}`; }
 function fmtBaht(n){ return Number(n).toLocaleString(undefined, {maximumFractionDigits:2}); }
 function tollMonthData(month){ return db.tolls && db.tolls[month] ? db.tolls[month] : null; }
 function tollPassesForDay(ds){
@@ -2763,7 +2764,7 @@ document.getElementById('exportExcelBtn').addEventListener('click', async ()=>{
     const { blob } = await buildExpenseXlsx(month);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `mileage-${month}.xlsx`;
+    a.download = exportName('reimbursement', month, 'xlsx');
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href), 10000);
   }catch(e){
@@ -2772,7 +2773,7 @@ document.getElementById('exportExcelBtn').addEventListener('click', async ()=>{
   }
 });
 
-// ---------- export word (.docx) พร้อมรูปไมล์และรูปแผนที่จริง ----------
+// ---------- export Mileage Record (PDF) พร้อมรูปไมล์และรูปแผนที่จริง ----------
 function b64ToUint8(dataUrl){
   const base64 = dataUrl.split(',')[1];
   const bin = atob(base64);
@@ -3373,42 +3374,42 @@ document.getElementById('previewMapBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('mapDlgClose').onclick = () => document.getElementById('mapDlg').close();
 
-async function buildWordBlob(month, onProgress){
+// หน้าละ 1 วัน (A4): วันที่ → รูปไมล์ Start | End → แผนที่เส้นทาง
+async function buildMileagePdf(month, onProgress){
   const dates = dataDates().filter(d=>d.startsWith(month)).sort();
-  if(typeof docx === 'undefined') throw new Error('Could not load the Word generator. Check your connection and try again.');
-  const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel } = docx;
-  const children = [
-    new Paragraph({ text:'Monthly Mileage & Route Report', heading:HeadingLevel.HEADING_1 }),
-    new Paragraph({ text:fmtMonthLabel(month), spacing:{after:300} })
-  ];
+  await loadScriptOnce(PDFLIB_URL);
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const doc = await PDFDocument.create();
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const PW = 595.28, PH = 841.89, M = 48, CW = PW - M*2; // A4 (pt), ขอบ, ความกว้างเนื้อหา
+  const embed = dataUrl => /^data:image\/png/i.test(dataUrl) ? doc.embedPng(b64ToUint8(dataUrl)) : doc.embedJpg(b64ToUint8(dataUrl));
+  // วางรูปให้พอดีกรอบโดยไม่บิดสัดส่วน ชิดซ้ายบน — คืนความสูงที่ใช้จริง
+  const drawFit = (page, img, x, top, boxW, boxH)=>{
+    const sc = Math.min(boxW / img.width, boxH / img.height);
+    const w = img.width * sc, h = img.height * sc;
+    page.drawImage(img, { x, y: top - h, width: w, height: h });
+    return h;
+  };
 
   for(let di=0; di<dates.length; di++){
     const d = dates[di];
     const r = db.days[d];
-
     if(onProgress) onProgress(`(${di+1}/${dates.length})`);
+    const page = doc.addPage([PW, PH]);
+    let y = PH - M;
 
-    children.push(new Paragraph({ text:fmtDateShort(d), heading:HeadingLevel.HEADING_2, spacing:{before:400}, pageBreakBefore: di>0 }));
+    page.drawText(fmtDateShort(d), { x:M, y:y - 16, size:16, font:bold, color:rgb(0.1, 0.1, 0.1) });
+    y -= 16 + 18;
 
-    const photoRunChildren = [];
-    const startData = await getPhotoData(r.startPhoto).catch(()=>null);
-    const endData = await getPhotoData(r.endPhoto).catch(()=>null);
-    if(startData){
-      try{
-        photoRunChildren.push(new ImageRun({ data:b64ToUint8(startData), transformation:{width:220,height:165} }));
-      }catch(e){ console.error('embed start photo failed', e); }
+    const gap = 14, boxW = (CW - gap) / 2, boxH = boxW * 0.75;
+    let photoH = 0, px = M;
+    for(const ref of [r.startPhoto, r.endPhoto]){
+      const data = await getPhotoData(ref).catch(()=>null);
+      if(!data) continue;
+      try{ photoH = Math.max(photoH, drawFit(page, await embed(data), px, y, boxW, boxH)); px += boxW + gap; }
+      catch(e){ console.error('embed odometer photo failed', e); }
     }
-    if(endData){
-      if(photoRunChildren.length){
-        photoRunChildren.push(new TextRun({ text:'   ' }));
-      }
-      try{
-        photoRunChildren.push(new ImageRun({ data:b64ToUint8(endData), transformation:{width:220,height:165} }));
-      }catch(e){ console.error('embed end photo failed', e); }
-    }
-    if(photoRunChildren.length){
-      children.push(new Paragraph({ children:photoRunChildren, spacing:{before:150} }));
-    }
+    if(photoH) y -= photoH + 16;
 
     const pts = (r.points||[]).filter(p=>p!=null);
     if(pts.length){
@@ -3418,15 +3419,10 @@ async function buildWordBlob(month, onProgress){
         t=>{ if(onProgress) onProgress(`(${di+1}/${dates.length}) ${t}`); },
         d
       );
-      if(mapResult && mapResult.dataUrl){
-        children.push(new Paragraph({ children:[ new ImageRun({ data:b64ToUint8(mapResult.dataUrl), transformation:{width:620,height:339} }) ], spacing:{before:150} }));
-      }
+      if(mapResult && mapResult.dataUrl) drawFit(page, await embed(mapResult.dataUrl), M, y, CW, y - M);
     }
   }
-
-  // Word ใช้ฟอนต์ SF ของระบบไม่ได้ จึงใช้ Helvetica Neue (มีในทุกเครื่อง Apple) ให้หน้าตาใกล้เคียง
-  const doc = new Document({ styles:{ default:{ document:{ run:{ font:'Helvetica Neue' } } } }, sections:[{ children }] });
-  return Packer.toBlob(doc);
+  return doc.save();
 }
 function downloadBlob(blob, filename){
   const a = document.createElement('a');
@@ -3435,26 +3431,26 @@ function downloadBlob(blob, filename){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 10000);
 }
-document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
+document.getElementById('exportPdfBtn').addEventListener('click', async ()=>{
   const month = document.getElementById('monthSelect').value;
   if(!dataDates().some(d=>d.startsWith(month))){ dlg('No data', 'No entries in the selected month.'); return; }
-  const btn = document.getElementById('exportWordBtn');
+  const btn = document.getElementById('exportPdfBtn');
   const originalText = btn.textContent;
   btn.disabled = true;
   try{
-    const blob = await buildWordBlob(month, t=>{ btn.textContent = `Creating file… ${t}`; });
-    downloadBlob(blob, `mileage-report-${month}.docx`);
+    const bytes = await buildMileagePdf(month, t=>{ btn.textContent = `Creating file… ${t}`; });
+    downloadBlob(new Blob([bytes], { type:'application/pdf' }), exportName('Mileage_record', month, 'pdf'));
   }catch(err){
-    console.error('Word export error:', err);
-    dlg('Export failed', 'Error while creating the Word file: ' + (err && err.message ? err.message : 'unknown error'));
+    console.error('PDF export error:', err);
+    dlg('Export failed', 'Error while creating the Mileage Record PDF: ' + (err && err.message ? err.message : 'unknown error'));
   }finally{
     btn.textContent = originalText;
     btn.disabled = false;
   }
 });
-// Export all: Word + Excel + tolls PDF (ไฮไลต์แล้ว) รวมเป็นไฟล์ .zip เดียว
+// Export all: Mileage Record PDF + Reimburse Excel + tolls PDF (ไฮไลต์แล้ว) รวมเป็นไฟล์ .zip เดียว
 // อ่านไฟล์ที่สร้างเสร็จเป็นไบต์ทันที แล้วตรวจว่าข้างในเป็นไฟล์ชนิดที่ถูกต้อง (มี partName ที่ต้องมีในสารบัญของ zip)
-// กันกรณี Blob ขนาดใหญ่ในเบราว์เซอร์ (เช่น Safari บน iPhone) ได้ข้อมูลสลับกัน — เคยเจอ .xlsx ใน zip กลายเป็นไฟล์ Word
+// กันกรณี Blob ในเบราว์เซอร์ (เช่น Safari บน iPhone) ได้ข้อมูลสลับกัน
 async function ooxmlBytes(blob, partName){
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const tail = bytes.subarray(Math.max(0, bytes.length - 65536)); // สารบัญ (central directory) อยู่ท้ายไฟล์
@@ -3478,11 +3474,10 @@ document.getElementById('exportAllBtn').addEventListener('click', async ()=>{
   btn.disabled = true;
   try{
     const zip = new JSZip();
-    btn.textContent = 'Creating Word…';
-    zip.file(`mileage-report-${month}.docx`,
-      await buildChecked('Word', 'word/document.xml', ()=>buildWordBlob(month, t=>{ btn.textContent = `Creating Word… ${t}`; })));
+    btn.textContent = 'Creating PDF…';
+    zip.file(exportName('Mileage_record', month, 'pdf'), await buildMileagePdf(month, t=>{ btn.textContent = `Creating PDF… ${t}`; }));
     btn.textContent = 'Creating Excel…';
-    zip.file(`mileage-${month}.xlsx`,
+    zip.file(exportName('reimbursement', month, 'xlsx'),
       await buildChecked('Excel', 'xl/workbook.xml', async ()=>(await buildExpenseXlsx(month)).blob));
     let note = '';
     if(tollMonthData(month)){
@@ -3491,7 +3486,7 @@ document.getElementById('exportAllBtn').addEventListener('click', async ()=>{
       if(pdf) zip.file(`tolls-${month}.pdf`, pdf);
       else note = ' The tolls PDF for this month could not be found on this device — please upload it again.';
     }else{
-      note = ` No tolls PDF uploaded for ${fmtMonthLabel(month)}, so the zip has Word and Excel only.`;
+      note = ` No tolls PDF uploaded for ${fmtMonthLabel(month)}, so the zip has the Mileage Record PDF and Reimburse Excel only.`;
     }
     btn.textContent = 'Zipping…';
     const bytes = await zip.generateAsync({ type:'uint8array', compression:'DEFLATE' });
@@ -3578,7 +3573,7 @@ document.getElementById('restoreFile').addEventListener('change', e=>{
   reader.readAsText(file);
 });
 
-// ---------- offline cache for libraries (OCR engine ~7MB, Excel/Word libs) ----------
+// ---------- offline cache for libraries (OCR engine ~7MB, Excel/PDF libs) ----------
 if('serviceWorker' in navigator && location.protocol === 'https:'){
   window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
 }
