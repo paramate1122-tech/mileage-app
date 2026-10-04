@@ -2373,7 +2373,8 @@ document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState 
 window.addEventListener('online', autoSyncProjectSheet);
 
 // ---------- copy a day (project + odometer + route) to another day ----------
-// คัดลอกทั้งวัน: Project information, เลขไมล์ Start/End พร้อมรูป และจุดแวะ (route)
+// คัดลอก Project information และจุดแวะ (route) — ส่วนไมล์: End ของวันต้นทาง (เลข + รูป) ไปเป็น Start ของวันปลายทาง
+// และช่อง End ของวันปลายทางว่างไว้ รอใส่เลขไมล์ตอนจบวัน
 // วันปลายทางที่มีข้อมูลอยู่แล้ว: ถามก่อน แล้วแทนที่ทั้งหมดด้วยข้อมูลของวันต้นทาง
 // รูปใช้ป้ายชี้ (idb:) อันเดียวกันได้ — รูปจะถูกเก็บกวาดก็ต่อเมื่อไม่มีวันไหนอ้างถึงแล้ว
 function hasRoute(r){ return !!(r && (r.points||[]).some(p=>p!=null)); }
@@ -2388,17 +2389,20 @@ function copyDayTo(src){
     const toDraft = ds === today && !hasData(db.days[today]);
     const target = toDraft ? (db.draft && db.draft.date === today ? db.draft : null) : db.days[ds];
     if(hasData(target)
-      && !confirm(`${fmtDateLong(ds)} already has data. Replace its project, odometer, photos and route with the ones from ${fmtDateLong(src)}?`)) return;
+      && !confirm(`${fmtDateLong(ds)} already has data. Replace its project and route with the ones from ${fmtDateLong(src)}, and its odometer with ${fmtDateLong(src)}’s End as the Start?`)) return;
     if(toDraft) editingPast = false;
     const rec = toDraft ? curRec() : dayRec(ds);
     if(hasProject(from)) rec.project = { ...from.project }; else delete rec.project;
-    ['startKm','endKm','startPhoto','endPhoto'].forEach(k=>{ rec[k] = from[k] ?? null; });
+    rec.startKm = from.endKm ?? null;
+    rec.startPhoto = from.endPhoto ?? null;
+    rec.endKm = null;
+    rec.endPhoto = null;
     rec.points = JSON.parse(JSON.stringify(from.points || []));
     saveDB();
     renderHistory();
     refreshMonthSelect();
     if(toDraft) openToday(); else openPastDay(ds);
-    setTimeout(()=>dlg('Copied', `Copied to ${fmtDateLong(ds)}. Check the odometer and route, then tap Save.`), 350);
+    setTimeout(()=>dlg('Copied', `Copied to ${fmtDateLong(ds)}. Start = the End reading of ${fmtDateLong(src)}. Add the End odometer, then tap Save.`), 350);
   }, `Copy ${fmtDateLong(src)} to…`, src);
 }
 
