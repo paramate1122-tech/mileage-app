@@ -3453,6 +3453,22 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   }
 });
 // Export all: Word + Excel + tolls PDF (ไฮไลต์แล้ว) รวมเป็นไฟล์ .zip เดียว
+// อ่านไฟล์ที่สร้างเสร็จเป็นไบต์ทันที แล้วตรวจว่าข้างในเป็นไฟล์ชนิดที่ถูกต้อง (มี partName ที่ต้องมีในสารบัญของ zip)
+// กันกรณี Blob ขนาดใหญ่ในเบราว์เซอร์ (เช่น Safari บน iPhone) ได้ข้อมูลสลับกัน — เคยเจอ .xlsx ใน zip กลายเป็นไฟล์ Word
+async function ooxmlBytes(blob, partName){
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const tail = bytes.subarray(Math.max(0, bytes.length - 65536)); // สารบัญ (central directory) อยู่ท้ายไฟล์
+  let text = ''; for(let i=0; i<tail.length; i+=0x8000) text += String.fromCharCode.apply(null, tail.subarray(i, i+0x8000));
+  return text.includes(partName) ? bytes : null;
+}
+async function buildChecked(label, partName, build){
+  for(let attempt=0; attempt<2; attempt++){
+    const bytes = await ooxmlBytes(await build(), partName);
+    if(bytes) return bytes;
+    console.error(`${label} came out as the wrong file type (attempt ${attempt+1})`);
+  }
+  throw new Error(`The ${label} file came out wrong. Please try again.`);
+}
 document.getElementById('exportAllBtn').addEventListener('click', async ()=>{
   const month = document.getElementById('monthSelect').value;
   if(!dataDates().some(d=>d.startsWith(month))){ dlg('No data', 'No entries in the selected month.'); return; }
@@ -3463,9 +3479,11 @@ document.getElementById('exportAllBtn').addEventListener('click', async ()=>{
   try{
     const zip = new JSZip();
     btn.textContent = 'Creating Word…';
-    zip.file(`mileage-report-${month}.docx`, await buildWordBlob(month, t=>{ btn.textContent = `Creating Word… ${t}`; }));
+    zip.file(`mileage-report-${month}.docx`,
+      await buildChecked('Word', 'word/document.xml', ()=>buildWordBlob(month, t=>{ btn.textContent = `Creating Word… ${t}`; })));
     btn.textContent = 'Creating Excel…';
-    zip.file(`mileage-${month}.xlsx`, (await buildExpenseXlsx(month)).blob);
+    zip.file(`mileage-${month}.xlsx`,
+      await buildChecked('Excel', 'xl/workbook.xml', async ()=>(await buildExpenseXlsx(month)).blob));
     let note = '';
     if(tollMonthData(month)){
       btn.textContent = 'Highlighting tolls…';
@@ -3476,8 +3494,8 @@ document.getElementById('exportAllBtn').addEventListener('click', async ()=>{
       note = ` No tolls PDF uploaded for ${fmtMonthLabel(month)}, so the zip has Word and Excel only.`;
     }
     btn.textContent = 'Zipping…';
-    const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
-    downloadBlob(blob, `mileage-${month}.zip`);
+    const bytes = await zip.generateAsync({ type:'uint8array', compression:'DEFLATE' });
+    downloadBlob(new Blob([bytes], { type:'application/zip' }), `mileage-${month}.zip`);
     if(note) dlg('Exported', note.trim());
   }catch(err){
     console.error('Export all error:', err);
