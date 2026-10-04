@@ -2373,32 +2373,34 @@ document.getElementById('sheetSyncBtn').addEventListener('click', async ()=>{
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') autoSyncProjectSheet(); });
 window.addEventListener('online', autoSyncProjectSheet);
 
-// ---------- copy a day's project + route to another day ----------
-// คัดลอกเฉพาะ Project information และจุดแวะ (route) — ไม่เอาเลขไมล์/รูป
-// วันปลายทางที่มีข้อมูลอยู่แล้ว: เลขไมล์/รูปของวันนั้นคงไว้ แทนที่เฉพาะ project + route
+// ---------- copy a day (project + odometer + route) to another day ----------
+// คัดลอกทั้งวัน: Project information, เลขไมล์ Start/End พร้อมรูป และจุดแวะ (route)
+// วันปลายทางที่มีข้อมูลอยู่แล้ว: ถามก่อน แล้วแทนที่ทั้งหมดด้วยข้อมูลของวันต้นทาง
+// รูปใช้ป้ายชี้ (idb:) อันเดียวกันได้ — รูปจะถูกเก็บกวาดก็ต่อเมื่อไม่มีวันไหนอ้างถึงแล้ว
 function hasRoute(r){ return !!(r && (r.points||[]).some(p=>p!=null)); }
 function copyDayTo(src){
   const from = db.days[src];
   if(!from) return;
-  if(!hasProject(from) && !hasRoute(from)){ dlg('Nothing to copy', `${fmtDateLong(src)} has no project information or route.`); return; }
+  if(!hasData(from)){ dlg('Nothing to copy', `${fmtDateLong(src)} has no data.`); return; }
   openCalendar(null, todayStr(), ds=>{
     if(ds === src){ dlg('Same day', 'Pick a different day to copy to.'); return; }
     const today = todayStr();
     // วันนี้ที่ยังไม่เคย Save = ใส่ลงฟอร์มหน้า Home (draft) แล้วค่อยใส่เลขไมล์และกด Save ตามปกติ
     const toDraft = ds === today && !hasData(db.days[today]);
     const target = toDraft ? (db.draft && db.draft.date === today ? db.draft : null) : db.days[ds];
-    if(target && (hasProject(target) || hasRoute(target))
-      && !confirm(`${fmtDateLong(ds)} already has a project or route. Replace them with the ones from ${fmtDateLong(src)}? Odometer and photos stay as they are.`)) return;
+    if(hasData(target)
+      && !confirm(`${fmtDateLong(ds)} already has data. Replace its project, odometer, photos and route with the ones from ${fmtDateLong(src)}?`)) return;
     if(toDraft) editingPast = false;
     const rec = toDraft ? curRec() : dayRec(ds);
     if(hasProject(from)) rec.project = { ...from.project }; else delete rec.project;
+    ['startKm','endKm','startPhoto','endPhoto'].forEach(k=>{ rec[k] = from[k] ?? null; });
     rec.points = JSON.parse(JSON.stringify(from.points || []));
     saveDB();
     renderHistory();
     refreshMonthSelect();
     if(toDraft) openToday(); else openPastDay(ds);
-    setTimeout(()=>dlg('Copied', `Project and route copied to ${fmtDateLong(ds)}. Add the odometer, then tap Save.`), 350);
-  }, `Copy project and route from ${fmtDateLong(src)} to…`, src);
+    setTimeout(()=>dlg('Copied', `Copied to ${fmtDateLong(ds)}. Check the odometer and route, then tap Save.`), 350);
+  }, `Copy ${fmtDateLong(src)} to…`, src);
 }
 
 // ---------- history ----------
@@ -2456,7 +2458,7 @@ function renderHistory(){
     return `<div class="history-item" data-day="${d}">
       <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${r.project && r.project.number ? escHtml(r.project.number)+' · ' : ''}${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}${tollTotalForDay(d) ? ' · Tolls ฿'+fmtBaht(tollTotalForDay(d)) : ''}</span></div>
       <div class="actions">
-        ${hasProject(r) || hasRoute(r) ? `<button class="icon-btn ico" data-copy="${d}" aria-label="Copy project and route to another day" title="Copy">${ICON_COPY}</button>` : ''}
+        <button class="icon-btn ico" data-copy="${d}" aria-label="Copy this day to another day" title="Copy">${ICON_COPY}</button>
         <button class="icon-btn ico" data-edit="${d}" aria-label="Edit" title="Edit">${ICON_EDIT}</button>
         <button class="icon-btn ico del" data-del="${d}" aria-label="Delete" title="Delete">${ICON_DEL}</button>
       </div>
