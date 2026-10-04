@@ -100,7 +100,7 @@
   .pressable{ --glow:rgba(255,255,255,.5); --glow-flat:rgba(255,255,255,.2); }
   .tab-btn.pressable.pressing{ transform:none; }
   .btn-ghost.pressable, .day-nav.pressable, .date-pill.pressable, .slot-icon-btn.pressable, .cal-nav button.pressable,
-  .cal-day.pressable, .icon-btn.pressable, .tab-btn.pressable, .photo-btn.pressable{ --glow:color-mix(in srgb, var(--accent) 45%, transparent); --glow-flat:color-mix(in srgb, var(--accent) 18%, transparent); }
+  .cal-day.pressable, .icon-btn.pressable, .tab-btn.pressable, .photo-btn.pressable, .swap-btn.pressable{ --glow:color-mix(in srgb, var(--accent) 45%, transparent); --glow-flat:color-mix(in srgb, var(--accent) 18%, transparent); }
   .icon-btn.del.pressable{ --glow:color-mix(in srgb, var(--red) 40%, transparent); --glow-flat:color-mix(in srgb, var(--red) 15%, transparent); }
   .cal-day.sel.pressable{ --glow:rgba(255,255,255,.5); --glow-flat:rgba(255,255,255,.2); }
   @media (prefers-reduced-motion: reduce){ .pressable, .pressable::after{ transition:none !important; } }
@@ -218,6 +218,29 @@
   .photo-btn .plus{ color:var(--accent); font-size:28px; font-weight:300; line-height:1; }
   .photo-btn input{ position:absolute; inset:0; opacity:0; cursor:pointer; }
   .photo-caption{ text-align:center; font-size:11px; color:var(--muted); margin-top:5px; }
+  .photo-slot{ position:relative; }
+  /* ปุ่มกากบาทมุมขวาบนของรูป (แบบ xmark.circle.fill ของ iPhone) — ล้างทั้งรูปและตัวเลขของช่องนั้น */
+  .photo-clear{
+    position:absolute; top:-8px; right:-8px; z-index:3; width:26px; height:26px; padding:0; border:none; border-radius:50%;
+    background:#8e8e93; color:#fff; box-shadow:0 0 0 2px var(--panel), 0 1px 3px rgba(0,0,0,.18);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    transition:transform .15s ease, opacity .2s ease;
+  }
+  .photo-clear[hidden]{ display:none; }
+  .photo-clear svg{ width:11px; height:11px; }
+  .photo-clear:active{ transform:scale(.88); opacity:.75; }
+  /* เส้นคั่นที่มีปุ่มสลับ Start ↔ End อยู่ตรงกลาง */
+  .odo-swap{ display:flex; align-items:center; gap:10px; margin:8px 0; }
+  .odo-swap::before, .odo-swap::after{ content:''; flex:1; height:0.5px; background:var(--line); }
+  .swap-btn{
+    width:36px; height:36px; padding:0; border:none; border-radius:50%; flex-shrink:0;
+    background:var(--fill); color:var(--accent); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .swap-btn svg{ width:19px; height:19px; transition:transform .4s cubic-bezier(.2,.8,.2,1); }
+  .swap-btn.flipped svg{ transform:rotate(180deg); }
+  .swap-btn:disabled{ opacity:.35; cursor:default; }
+  @media (prefers-reduced-motion: reduce){ .swap-btn svg{ transition:none; } }
 
   .pair{ display:flex; gap:16px; }
   .pair > div{ flex:1; min-width:0; }
@@ -494,12 +517,17 @@
               <img id="startImg" style="display:none">
               <input type="file" accept="image/*" id="startFile">
             </div>
+            <button type="button" class="photo-clear" id="startClear" aria-label="Clear start photo and number" title="Clear Start" hidden><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
             <div class="photo-caption">Photo</div>
           </div>
         </div>
       </div>
     </div>
-    <div class="divider"></div>
+    <div class="odo-swap">
+      <button type="button" class="swap-btn" id="swapOdoBtn" aria-label="Swap start and end" title="Swap Start ↔ End">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 20V4M4 8l4-4 4 4"/><path d="M16 4v16M12 16l4 4 4-4"/></svg>
+      </button>
+    </div>
     <div class="pair">
       <div>
         <div class="odo-row">
@@ -514,6 +542,7 @@
               <img id="endImg" style="display:none">
               <input type="file" accept="image/*" id="endFile">
             </div>
+            <button type="button" class="photo-clear" id="endClear" aria-label="Clear end photo and number" title="Clear End" hidden><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
             <div class="photo-caption">Photo</div>
           </div>
         </div>
@@ -950,7 +979,7 @@ function openToday(){
   showForm('today');
 }
 // ---------- iPhone-style press glow ----------
-const PRESSABLE = '.btn, .icon-btn, .day-nav, .date-pill, .slot-icon-btn, .cal-nav button, .cal-day, .photo-btn, .past-banner button, .slot-clear';
+const PRESSABLE = '.btn, .icon-btn, .day-nav, .date-pill, .slot-icon-btn, .cal-nav button, .cal-day, .photo-btn, .past-banner button, .slot-clear, .swap-btn';
 (function initPressGlow(){
   let active = null, downAt = 0;
   const release = ()=>{
@@ -1185,10 +1214,13 @@ function loadDayIntoForm(){
   refreshDateSelect();
 }
 const _previewToken = { start:0, end:0 };
+const _shownPhoto = { start:null, end:null }; // รูปที่ช่องนั้นแสดงอยู่ (รวมรูปที่เพิ่งถ่ายแต่ยังบันทึกไม่เสร็จ)
 function setPhotoPreview(which, ref){
   const img = document.getElementById(which+'Img');
   const plus = document.getElementById(which+'Plus');
   const token = ++_previewToken[which];
+  _shownPhoto[which] = ref || null;
+  syncOdoClears();
   const show = url=>{
     if(token !== _previewToken[which]) return; // ผู้ใช้เปลี่ยนวันไปแล้ว
     if(url){ img.src = url; img.style.display='block'; plus.style.display='none'; }
@@ -1534,7 +1566,7 @@ async function findNearbyPOI(lat, lng){
 ['start','end'].forEach(which=>{
   document.getElementById(which+'Km').addEventListener('input', e=>{
     curRec()[which+'Km'] = e.target.value === '' ? null : parseFloat(e.target.value);
-    saveDB(); updateStats();
+    saveDB(); updateStats(); syncOdoClears();
   });
   document.getElementById(which+'File').addEventListener('change', e=>{
     const file = e.target.files[0];
@@ -1552,16 +1584,21 @@ async function findNearbyPOI(lat, lng){
         canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
         const compressed = canvas.toDataURL('image/jpeg', 0.75);
         const target = curRec(); // จำไว้ว่าเป็นรูปของวันไหน ก่อนรอเขียนลงที่เก็บรูป
+        // รูปใหม่แทนรูปเดิมของช่องนี้ — งานที่ค้างของรูปเก่า (บันทึก/อ่านเลข) ไม่ต้องเขียนทับแล้ว
+        cancelOdoJobs(target, which);
+        const job = startOdoJob(target, which); // ถ้ากดสลับ/ล้างระหว่างรอ job.which จะเปลี่ยนตาม
         setPhotoPreview(which, compressed);
         putPhoto(compressed).then(ref=>{
-          target[which+'Photo'] = ref;
+          if(job.cancelled) return;
+          target[job.which+'Photo'] = ref;
           saveDB();
         }).catch(err=>{
+          if(job.cancelled) return;
           // เก็บรูปใน IndexedDB ไม่ได้ -> เก็บแบบเดิม (ถ้าเต็ม saveDB จะเตือน)
           console.error('putPhoto failed, storing inline', err);
-          target[which+'Photo'] = compressed;
+          target[job.which+'Photo'] = compressed;
           saveDB();
-        });
+        }).finally(()=>endOdoJob(job));
 
         // canvas ความละเอียดสูงกว่า ไว้ใช้ครอบตัดเฉพาะจุดที่แตะสำหรับ OCR
         const ocrMaxW = 1400;
@@ -1576,6 +1613,59 @@ async function findNearbyPOI(lat, lng){
       img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
+  });
+});
+
+// ---------- odometer: สลับ Start ↔ End และล้างทีละช่อง ----------
+// งานที่ยังค้าง (บันทึกรูปลงเครื่อง, อ่านเลขจากรูป) จำไว้ว่าเป็นของวันไหน/ช่องไหน
+// กดสลับระหว่างรอ = งานย้ายไปช่องใหม่ด้วย, กดล้าง = ทิ้งผลของงานนั้น
+const _odoJobs = new Set();
+function startOdoJob(rec, which){ const job = { rec, which, cancelled:false }; _odoJobs.add(job); return job; }
+function endOdoJob(job){ _odoJobs.delete(job); }
+function cancelOdoJobs(rec, which){
+  _odoJobs.forEach(j=>{ if(j.rec === rec && j.which === which){ j.cancelled = true; _odoJobs.delete(j); } });
+}
+function syncOdoClears(){
+  let any = false;
+  ['start','end'].forEach(which=>{
+    const filled = document.getElementById(which+'Km').value !== '' || !!_shownPhoto[which];
+    document.getElementById(which+'Clear').hidden = !filled;
+    any = any || filled;
+  });
+  document.getElementById('swapOdoBtn').disabled = !any;
+}
+function showOdoSlot(which, rec){
+  document.getElementById(which+'Km').value = rec[which+'Km'] ?? '';
+  document.getElementById(which+'File').value = ''; // เลือกรูปเดิมซ้ำได้
+}
+document.getElementById('swapOdoBtn').addEventListener('click', e=>{
+  const rec = curRec();
+  [rec.startKm, rec.endKm] = [rec.endKm ?? null, rec.startKm ?? null];
+  [rec.startPhoto, rec.endPhoto] = [rec.endPhoto ?? null, rec.startPhoto ?? null];
+  _odoJobs.forEach(j=>{ if(j.rec === rec) j.which = j.which === 'start' ? 'end' : 'start'; });
+  saveDB();
+
+  const shown = { ..._shownPhoto };
+  const sSt = document.getElementById('startOcrStatus'), eSt = document.getElementById('endOcrStatus');
+  [sSt.textContent, eSt.textContent] = [eSt.textContent, sSt.textContent];
+  showOdoSlot('start', rec); showOdoSlot('end', rec);
+  // ใช้รูปที่แสดงอยู่ (ไม่ใช่ค่าใน rec) เพื่อให้รูปที่เพิ่งถ่ายแต่ยังบันทึกไม่เสร็จย้ายตามไปด้วย
+  setPhotoPreview('start', shown.end);
+  setPhotoPreview('end', shown.start);
+  updateStats();
+  e.currentTarget.classList.toggle('flipped');
+});
+['start','end'].forEach(which=>{
+  document.getElementById(which+'Clear').addEventListener('click', ()=>{
+    const rec = curRec();
+    cancelOdoJobs(rec, which);
+    rec[which+'Km'] = null;
+    rec[which+'Photo'] = null; // ไฟล์รูปที่ไม่มีใครใช้แล้วจะถูกเก็บกวาดเองภายหลัง
+    saveDB();
+    showOdoSlot(which, rec);
+    document.getElementById(which+'OcrStatus').textContent = '';
+    setPhotoPreview(which, null);
+    updateStats();
   });
 });
 
@@ -1702,14 +1792,21 @@ function preloadOcr(){
 })();
 
 async function readOdometerFromCrop(which, ocrCanvas, rel){
-  const statusEl = document.getElementById(which+'OcrStatus');
+  // ถ้าผู้ใช้กดสลับระหว่างอ่าน ข้อความสถานะ/ตัวเลขจะไปลงช่องใหม่ (job.which); ถ้ากดล้าง จะไม่เขียนอะไรเลย
+  const job = startOdoJob(curRec(), which);
+  const setStatus = t=>{
+    if(job.cancelled) return;
+    const el = document.getElementById(job.which+'OcrStatus');
+    if(el) el.textContent = t;
+  };
   if(typeof Tesseract === 'undefined'){
-    if(statusEl) statusEl.textContent = 'Could not load the number reader (check internet). Enter manually.';
+    setStatus('Could not load the number reader (check internet). Enter manually.');
+    endOdoJob(job);
     return;
   }
   const workerReady = ocrLoadProgress >= 1;
-  if(statusEl) statusEl.textContent = workerReady ? 'Reading odometer…' : `Loading reader… ${Math.round(ocrLoadProgress*100)}%`;
-  ocrProgressListener = p => { if(statusEl && p < 1) statusEl.textContent = `Loading reader… ${Math.round(p*100)}%`; };
+  setStatus(workerReady ? 'Reading odometer…' : `Loading reader… ${Math.round(ocrLoadProgress*100)}%`);
+  ocrProgressListener = p => { if(p < 1) setStatus(`Loading reader… ${Math.round(p*100)}%`); };
   try{
     // ครอบตัดตามกรอบที่ผู้ใช้ลาก/ปรับขนาดเอง (rel.x,y = มุมบนซ้าย, rel.w,h = ขนาด เป็นสัดส่วนของภาพ)
     const cw = Math.max(20, rel.w*ocrCanvas.width);
@@ -1729,22 +1826,24 @@ async function readOdometerFromCrop(which, ocrCanvas, rel){
 
     const worker = await getOcrWorker();
     ocrProgressListener = null;
-    if(statusEl) statusEl.textContent = 'Reading odometer…';
+    setStatus('Reading odometer…');
     const { data } = await worker.recognize(cropCanvas);
     const digitsOnly = (data.text || '').replace(/[^0-9]/g,' ').trim().split(/\s+/).filter(Boolean);
     if(digitsOnly.length){
       const best = digitsOnly.sort((a,b)=>b.length-a.length)[0];
       const num = parseFloat(best);
       if(!isNaN(num)){
-        document.getElementById(which+'Km').value = num;
-        curRec()[which+'Km'] = num;
+        if(job.cancelled) return;
+        document.getElementById(job.which+'Km').value = num;
+        curRec()[job.which+'Km'] = num;
         saveDB();
         updateStats();
-        if(statusEl) statusEl.textContent = `Read ${num} km — check it matches the photo`;
+        syncOdoClears();
+        setStatus(`Read ${num} km — check it matches the photo`);
         return;
       }
     }
-    if(statusEl) statusEl.textContent = 'Could not read the number clearly. Enter it manually or retake the photo.';
+    setStatus('Could not read the number clearly. Enter it manually or retake the photo.');
   }catch(err){
     console.error('OCR error:', err);
     const msg = (err && err.message) || '';
@@ -1754,7 +1853,9 @@ async function readOdometerFromCrop(which, ocrCanvas, rel){
     } else {
       shown = 'Auto-read failed (' + (msg || 'unknown error') + '). Enter manually.';
     }
-    if(statusEl) statusEl.textContent = shown;
+    setStatus(shown);
+  }finally{
+    endOdoJob(job);
   }
 }
 
