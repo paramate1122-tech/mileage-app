@@ -618,7 +618,7 @@
         </button>
       </div>
     </div>
-    <div class="hint">Reimburse Excel: fills the expense claim template — project, date, 泰铢, allowance (km × 1.2 × 5), tolls and start–end mileage. Mileage Record (PDF): one page per day with odometer photos and a Google Maps route image. Export all: Mileage Record PDF + Reimburse Excel + the month’s tolls PDF with matching toll rows highlighted, in one .zip. Data is stored only on this device — back up regularly.</div>
+    <div class="hint">Reimburse Excel: fills the expense claim template — project, date, 泰铢, allowance (km × 1.2 × 5), tolls and start–end mileage. Mileage Record (PDF): one page per day with odometer photos and a route map image. Export all: Mileage Record PDF + Reimburse Excel + the month’s tolls PDF with matching toll rows highlighted, in one .zip. Data is stored only on this device — back up regularly.</div>
   </div>
 
   </div>
@@ -1305,7 +1305,7 @@ function renderPointSlots(){
   document.getElementById('previewMapBtn').disabled = filledCount < 1;
 }
 
-// ---------- ค้นหาสถานที่จาก Google Maps (dropdown ให้เลือก) ----------
+// ---------- ค้นหาสถานที่ (OpenStreetMap ผ่าน Photon, dropdown ให้เลือก) ----------
 let _lastFix = null; // ตำแหน่ง GPS ล่าสุด ใช้ช่วยให้ผลค้นหาเรียงสถานที่ใกล้ตัวก่อน
 function searchBiasCenter(){
   if(_lastFix) return _lastFix;
@@ -1328,77 +1328,30 @@ async function warmBiasFix(){
   }catch(e){}
 }
 
-let _acSessionToken = null;
-// คืนรายการ {main, sub, resolve()} — ลองใช้ Places API (New) ก่อน ถ้าโปรเจกต์ไม่ได้เปิดไว้ค่อยใช้ Places API (Legacy)
+// ค้นหาด้วย Photon (ข้อมูล OpenStreetMap, ไม่ต้องใช้ API key) — คืนรายการ {main, sub, resolve()}
+const PHOTON_URL = 'https://photon.komoot.io/api/';
+const TH_BBOX = '97.3,5.6,105.7,20.5'; // จำกัดผลค้นหาให้อยู่ในประเทศไทย
 async function fetchPlaceSuggestions(query){
-  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
-  if(!apiKey) throw new Error('Maps is not available');
-  await loadGoogleMapsJS(apiKey);
-  const P = google.maps.places;
-  if(!_acSessionToken) _acSessionToken = new P.AutocompleteSessionToken();
-  const token = _acSessionToken;
+  const params = new URLSearchParams({ q:query, limit:'8', lang:'en', bbox:TH_BBOX });
   const bias = searchBiasCenter();
-
-  let newApiErr = null;
-  if(P.AutocompleteSuggestion && !fetchPlaceSuggestions._newApiFailed){
-    try{
-      const req = { input:query, sessionToken:token, language:'en', region:'th' };
-      if(bias) req.locationBias = { center:bias, radius:50000 };
-      const { suggestions } = await withTimeout(P.AutocompleteSuggestion.fetchAutocompleteSuggestions(req), 7000, 'Google took too long');
-      const list = suggestions.filter(s=>s.placePrediction).map(s=>{
-        const pp = s.placePrediction;
-        const main = (pp.mainText && pp.mainText.text) || pp.text.text;
-        return {
-          main,
-          sub: (pp.secondaryText && pp.secondaryText.text) || '',
-          resolve: async ()=>{
-            const place = pp.toPlace();
-            await withTimeout(place.fetchFields({ fields:['displayName','location','formattedAddress'] }), 10000, 'Google took too long');
-            _acSessionToken = null;
-            return { name: place.displayName || main, lat: place.location.lat(), lng: place.location.lng() };
-          }
-        };
-      });
-      if(list.length) return list;
-      // ไม่มีผลลัพธ์ -> ลองระบบค้นหาแบบเดิมอีกทาง
-    }catch(e){
-      newApiErr = e;
-      console.warn('Places API (New) failed, falling back to Legacy', e);
-      // ถ้าถูกปฏิเสธสิทธิ์ (ไม่ได้เปิด API นี้) ไม่ต้องลองซ้ำทุกครั้ง; ถ้าแค่ช้า/เน็ตหลุด ครั้งหน้าลองใหม่ได้
-      if(/PERMISSION|DENIED|not been used|disabled|403/i.test(String(e && (e.message||e)))) fetchPlaceSuggestions._newApiFailed = true;
-    }
-  }
-
-  const svc = new P.AutocompleteService();
-  const req = { input:query, sessionToken:token, language:'en', componentRestrictions:{country:'th'} };
-  if(bias) req.locationBias = { center:bias, radius:50000 };
-  let preds;
-  try{
-    preds = await withTimeout(new Promise((resolve, reject)=>{
-      svc.getPlacePredictions(req, (res, status)=>{
-        if(status === P.PlacesServiceStatus.OK) resolve(res || []);
-        else if(status === P.PlacesServiceStatus.ZERO_RESULTS) resolve([]);
-        else reject(new Error('Google Places rejected the request: '+status));
-      });
-    }), 8000, 'Google took too long. Please try again.');
-  }catch(e){
-    if(_gmapsAuthError) throw new Error(_gmapsAuthError);
-    if(newApiErr) console.warn('Both search backends failed', newApiErr);
-    throw e;
-  }
-  if(!preds.length && _gmapsAuthError) throw new Error(_gmapsAuthError);
-  return preds.map(pr=>({
-    main: (pr.structured_formatting && pr.structured_formatting.main_text) || pr.description,
-    sub: (pr.structured_formatting && pr.structured_formatting.secondary_text) || '',
-    resolve: ()=>new Promise((resolve, reject)=>{
-      getPlacesService().getDetails({ placeId:pr.place_id, fields:['name','geometry'], sessionToken:token }, (place, status)=>{
-        _acSessionToken = null;
-        if(status === P.PlacesServiceStatus.OK && place && place.geometry){
-          resolve({ name: place.name || pr.description, lat: place.geometry.location.lat(), lng: place.geometry.location.lng() });
-        } else reject(new Error('Could not get place location: '+status));
-      });
-    })
-  }));
+  if(bias){ params.set('lat', bias.lat.toFixed(5)); params.set('lon', bias.lng.toFixed(5)); }
+  let res;
+  try{ res = await withTimeout(fetch(`${PHOTON_URL}?${params}`), 8000, 'Search took too long. Please try again.'); }
+  catch(e){ throw new Error(e && /too long/.test(e.message) ? e.message : 'Could not reach the search service. Check the internet connection.'); }
+  if(!res.ok) throw new Error(`Search service returned an error (${res.status}).`);
+  const data = await res.json();
+  const seen = new Set();
+  return (data.features||[]).map(f=>{
+    const pr = f.properties || {}, c = (f.geometry && f.geometry.coordinates) || [];
+    const road = [pr.housenumber, pr.street].filter(Boolean).join(' ');
+    const main = pr.name || road || pr.district || pr.city || pr.state || '';
+    const sub = [...new Set([pr.name ? road : '', pr.district, pr.city || pr.county, pr.state].filter(x=>x && x !== main))].join(', ');
+    const name = main, lat = c[1], lng = c[0];
+    return { main, sub, lat, lng, resolve: async ()=>({ name, lat, lng }) };
+  }).filter(it=>{
+    if(!it.main || typeof it.lat !== 'number' || typeof it.lng !== 'number') return false;
+    const k = it.main+'|'+it.sub; if(seen.has(k)) return false; seen.add(k); return true;
+  });
 }
 
 function attachPlaceSearch(input, slotIdx){
@@ -1870,8 +1823,7 @@ function captureSlot(i){
     pts[i] = p;
     saveDB(); renderPointSlots();
     document.getElementById('gpsLive').textContent = `Finding place name for stop ${i+1}…`;
-    let name = await findNearestGooglePlace(p.lat, p.lng);
-    if(!name) name = await reverseGeocode(p.lat, p.lng);
+    const name = await reverseGeocode(p.lat, p.lng);
     p.label = name || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
     saveDB(); renderPointSlots();
     document.getElementById('gpsLive').textContent = `Saved stop ${i+1}: ${p.label}`;
@@ -2796,39 +2748,7 @@ function fmtKmTH(meters){
   return (meters/1000).toLocaleString(undefined,{maximumFractionDigits:1})+' km';
 }
 
-// ---------- Google Maps Static API (ถ้าผู้ใช้ตั้งค่า API key ไว้) ----------
-const GMAPS_KEY_STORAGE = 'gmaps_api_key';
-
-// โหลด Google Maps JavaScript API (ใช้สำหรับ Directions + Places ซึ่งเรียกตรงจากเบราว์เซอร์ผ่าน REST ไม่ได้เพราะติด CORS)
-let _gmapsJsLoadPromise = null;
-let _gmapsJsLoadedKey = null;
-function loadGoogleMapsJS(apiKey){
-  if(window.google && window.google.maps && window.google.maps.places && _gmapsJsLoadedKey === apiKey){
-    return Promise.resolve();
-  }
-  if(_gmapsJsLoadPromise && _gmapsJsLoadedKey === apiKey) return _gmapsJsLoadPromise;
-  _gmapsJsLoadedKey = apiKey;
-  _gmapsJsLoadPromise = new Promise((resolve, reject)=>{
-    const cbName = '__gmapsInit_' + Date.now();
-    window[cbName] = ()=>{ delete window[cbName]; resolve(); };
-    const s = document.createElement('script');
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=en&callback=${cbName}`;
-    s.async = true;
-    s.onerror = ()=>{
-      s.remove();
-      _gmapsJsLoadPromise = null; // ให้ลองโหลดใหม่ได้ในครั้งถัดไป (เช่น เน็ตหลุดชั่วคราว)
-      reject(new Error('Could not load Google Maps — check your connection and try again'));
-    };
-    document.head.appendChild(s);
-  });
-  return _gmapsJsLoadPromise;
-}
-// Google เรียกฟังก์ชันนี้เมื่อคีย์ถูกปฏิเสธ (เช่น จำกัดโดเมนไว้ไม่ตรงกับเว็บที่เปิดแอป / ยังไม่เปิด billing)
-let _gmapsAuthError = null;
-window.gm_authFailure = ()=>{
-  _gmapsAuthError = `Google rejected the API key for this site (${location.origin}) — check the key's website restrictions in Google Cloud Console`;
-  console.error(_gmapsAuthError);
-};
+// ---------- แผนที่/เส้นทางแบบไม่ใช้ API key (OpenStreetMap + OSRM) ----------
 function withTimeout(promise, ms, msg){
   let t;
   return Promise.race([
@@ -2837,75 +2757,31 @@ function withTimeout(promise, ms, msg){
   ]);
 }
 
-// PlacesService ต้องผูกกับ google.maps.Map instance (แม้ไม่ต้องแสดงแผนที่จริงก็ตาม) — ใช้ div ที่ซ่อนไว้
-let _placesServiceCache = null;
-function getPlacesService(){
-  if(_placesServiceCache) return _placesServiceCache;
-  const div = document.createElement('div');
-  const map = new google.maps.Map(div, {center:{lat:13.7563,lng:100.5018}, zoom:15});
-  _placesServiceCache = new google.maps.places.PlacesService(map);
-  return _placesServiceCache;
-}
-
-// หาสถานที่ใกล้ที่สุดจาก Google Maps (เช่น ชื่อคอนโด/โรงงาน/ร้านค้า) — คืนค่า null ถ้าไม่มีคีย์หรือหาไม่พบ
-async function findNearestGooglePlace(lat, lng){
-  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
-  if(!apiKey) return null;
-  try{
-    await loadGoogleMapsJS(apiKey);
-    const service = getPlacesService();
-    const search = (req) => new Promise(resolve=>{
-      service.nearbySearch(req, (results, status)=>{
-        if(status === google.maps.places.PlacesServiceStatus.OK && results && results.length){
-          resolve(results[0].name);
-        } else resolve(null);
-      });
-    });
-    // ลองค้นแบบเรียงตามระยะทางก่อน (ต้องระบุ type)
-    let name = await search({ location:{lat,lng}, rankBy: google.maps.places.RankBy.DISTANCE, type:'point_of_interest' });
-    if(!name){
-      // ถ้าไม่เจอ ลองค้นในรัศมีแคบๆ โดยไม่จำกัดประเภท
-      name = await search({ location:{lat,lng}, radius:120 });
-    }
-    return name;
-  }catch(e){
-    console.error('Google Places lookup failed', e);
-    return null;
-  }
-}
-
-// คำนวณเส้นทางจริงหลายจุด (สูงสุด 5 จุด) ด้วย Google Directions API ผ่าน DirectionsService
-async function fetchGoogleDirections(pts){
+// คำนวณเส้นทางขับรถจริงหลายจุด (สูงสุด 5 จุด) ด้วย OSRM (ข้อมูลถนนจาก OpenStreetMap)
+const OSRM_URL = 'https://router.project-osrm.org/route/v1/driving/';
+async function fetchRoute(pts){
   if(pts.length < 2) return null;
-  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
-  if(!apiKey) return null;
-  await loadGoogleMapsJS(apiKey);
-  const ds = new google.maps.DirectionsService();
-  const origin = {lat:pts[0].lat, lng:pts[0].lng};
-  const destination = {lat:pts[pts.length-1].lat, lng:pts[pts.length-1].lng};
-  const waypoints = pts.slice(1,-1).map(p=>({location:{lat:p.lat,lng:p.lng}, stopover:true}));
-  return await new Promise((resolve, reject)=>{
-    ds.route({ origin, destination, waypoints, optimizeWaypoints:false, travelMode: google.maps.TravelMode.DRIVING }, (result, status)=>{
-      if(status === 'OK' && result.routes && result.routes[0]){
-        const route = result.routes[0];
-        let distanceM=0, durationS=0;
-        route.legs.forEach(leg=>{ distanceM += leg.distance.value; durationS += leg.duration.value; });
-        const coords = (route.overview_path||[]).map(ll=>({lat:ll.lat(), lng:ll.lng()}));
-        // เส้นทางละเอียดจากทุก step (โค้งตามถนนจริงกว่า overview_path)
-        const path = [];
-        route.legs.forEach(l=>(l.steps||[]).forEach(st=>(st.path||[]).forEach(ll=>path.push({lat:ll.lat(), lng:ll.lng()}))));
-        const legs = route.legs.map(l=>({distanceM:l.distance.value, durationS:l.duration.value}));
-        resolve({ distanceM, durationS, coords, path: path.length>1 ? path : coords, legs,
-                  summary: route.summary || '', warnings: route.warnings || [] });
-      } else {
-        reject(new Error('Google Directions rejected the request: '+status));
-      }
-    });
-  });
+  const coords = pts.map(p=>`${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+  let res;
+  try{ res = await withTimeout(fetch(`${OSRM_URL}${coords}?overview=full&geometries=geojson&steps=true`), 20000, 'Route service took too long. Please try again.'); }
+  catch(e){ throw new Error(e && /too long/.test(e.message) ? e.message : 'Could not reach the route service. Check the internet connection.'); }
+  let data = null;
+  try{ data = await res.json(); }catch(e){}
+  if(!res.ok || !data || data.code !== 'Ok' || !data.routes || !data.routes[0]){
+    throw new Error('Could not calculate the route: ' + ((data && (data.message || data.code)) || `HTTP ${res.status}`));
+  }
+  const route = data.routes[0];
+  const path = route.geometry.coordinates.map(([lng, lat])=>({lat, lng}));
+  const legs = route.legs.map(l=>({distanceM:l.distance, durationS:l.duration}));
+  // ชื่อถนนหลักของเส้นทาง (เทียบเท่า "via ..." ของ Google)
+  const roads = [];
+  route.legs.forEach(l=>String(l.summary||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(r=>{ if(!roads.includes(r)) roads.push(r); }));
+  return { distanceM: route.distance, durationS: route.duration, coords: path, path, legs,
+           summary: roads.slice(0,2).join(' and '), warnings: [] };
 }
 
 // ---------- ภาพเส้นทางสไตล์หน้าจอ Google Maps (แผงรายการจุดด้านซ้าย + แผนที่ด้านขวา) ----------
-// สร้างอัตโนมัติจาก Static Maps (พื้นแผนที่) + Directions (เส้นทาง/ระยะทาง/เวลา) แล้ววาดเส้นทาง หมุด และป้ายเวลาเองบน canvas
+// สร้างอัตโนมัติจาก tile แผนที่ OpenStreetMap (พื้นแผนที่) + OSRM (เส้นทาง/ระยะทาง/เวลา) แล้ววาดเส้นทาง หมุด และป้ายเวลาเองบน canvas
 // ขนาดและเลย์เอาต์เท่าหน้าจอ Google Maps บนคอมพิวเตอร์ (แถบเมนู 90px + แผงเส้นทาง 520px + แผนที่)
 const RIMG_W = 1890, RIMG_H = 1032, RIMG_PANEL = 610;
 const RIMG_MAP_W = RIMG_W - RIMG_PANEL, RIMG_MAP_H = RIMG_H; // พิกเซลจริง (Static Maps scale=2 → ขอขนาดครึ่งหนึ่ง: 640x516)
@@ -2938,31 +2814,46 @@ function fitMapView(coords, mapW, mapH){
   return { zoom, cx, cy, sc };
 }
 
-async function fetchStaticMapBase(view, apiKey){
-  const params = new URLSearchParams();
-  params.set('center', `${invMercY(view.cy).toFixed(6)},${invMercX(view.cx).toFixed(6)}`);
-  params.set('zoom', String(view.zoom));
-  params.set('size', `${RIMG_MAP_W/2}x${RIMG_MAP_H/2}`);
-  params.set('scale', '2');
-  params.set('maptype', 'roadmap');
-  params.set('format', 'png');
-  params.set('region', 'th');
-  params.set('key', apiKey);
-  const url = `https://maps.googleapis.com/maps/api/staticmap?${params.toString()}`;
-  const res = await fetch(url);
-  const ct = res.headers.get('content-type') || '';
-  if(!res.ok || !ct.startsWith('image')){
-    let detail = '';
-    try{ detail = await res.text(); }catch(e){}
-    throw new Error(`Google Static Maps rejected the request (HTTP ${res.status}): ${(detail||ct).slice(0,400)}`);
-  }
-  const blob = await res.blob();
-  return await new Promise((resolve,reject)=>{
+// พื้นแผนที่: ต่อ tile (512px @2x) จาก CARTO Voyager (ข้อมูล OpenStreetMap) ลงบน canvas ขนาดเท่าภาพ Static Maps เดิม
+const BASE_TILE_URL = (z, x, y)=>`https://${'abcd'[(x+y)%4]}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}@2x.png`;
+const SAT_TILE_URL = (z, x, y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+function loadTileImage(url){
+  return new Promise((resolve, reject)=>{
     const im = new Image();
-    im.onload=()=>resolve(im);
-    im.onerror=()=>reject(new Error('Could not load the image from Google'));
-    im.src = URL.createObjectURL(blob);
+    im.crossOrigin = 'anonymous'; // ต้องมี ไม่งั้น canvas จะ export เป็นรูปไม่ได้
+    im.onload = ()=>resolve(im);
+    im.onerror = ()=>reject(new Error('tile failed: '+url));
+    im.src = url;
   });
+}
+// วาด tile ให้ครอบคลุมกรอบ w×h (หน่วยพิกเซลที่ zoom นั้น) โดยมี view.cx/cy เป็นกึ่งกลาง; ss = พิกเซลจริงต่อพิกเซลแผนที่
+async function renderTiles(view, zoom, w, h, ss, urlFn, tilePx){
+  const sc = Math.pow(2, zoom), n = Math.pow(2, zoom);
+  const left = view.cx*sc - w/2, top = view.cy*sc - h/2;
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(w*ss); cv.height = Math.round(h*ss);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#f2efe9'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const jobs = [];
+  for(let ty = Math.floor(top/256); ty <= Math.floor((top+h)/256); ty++){
+    if(ty < 0 || ty >= n) continue;
+    for(let tx = Math.floor(left/256); tx <= Math.floor((left+w)/256); tx++){
+      const wx = ((tx % n) + n) % n;
+      const url = urlFn(zoom, wx, ty);
+      const load = ()=>loadTileImage(url);
+      jobs.push(load().catch(()=>load()).then(im=>{
+        ctx.drawImage(im, 0, 0, im.width, im.height, (tx*256-left)*ss, (ty*256-top)*ss, 256*ss, 256*ss);
+        return true;
+      }, ()=>false));
+    }
+  }
+  const ok = await Promise.all(jobs);
+  return { canvas: cv, loaded: ok.filter(Boolean).length, total: ok.length };
+}
+async function fetchStaticMapBase(view){
+  const r = await withTimeout(renderTiles(view, view.zoom, RIMG_MAP_W/2, RIMG_MAP_H/2, 2, BASE_TILE_URL), 30000, 'The map took too long to load. Please try again.');
+  if(r.loaded < r.total) throw new Error(`Could not load the map (${r.total - r.loaded} of ${r.total} map tiles failed). Check the internet connection and try again.`);
+  return r.canvas;
 }
 
 function roundRectPath(ctx, x, y, w, h, r){
@@ -3211,7 +3102,7 @@ function drawMapChrome(ctx, view, layersThumb){
   shadowBox(ctx, R-18, 973, 36, 36, 8);
   ctx.fillStyle = '#fbbc04'; ctx.beginPath(); ctx.arc(R, 983, 4, 0, Math.PI*2); ctx.fill();
   roundRectPath(ctx, R-5.5, 988, 11, 13, 4); ctx.fill();
-  // ซ้ายล่าง: Layers (ภาพดาวเทียมเล็กจริงจาก Google ถ้าโหลดได้)
+  // ซ้ายล่าง: Layers (ภาพดาวเทียมเล็กจริงจาก Esri ถ้าโหลดได้)
   shadowBox(ctx, 641, 893, 96, 96, 10, '#5f6b5a');
   if(layersThumb){ ctx.save(); roundRectPath(ctx, 643, 895, 92, 92, 8); ctx.clip(); ctx.drawImage(layersThumb, 643, 895, 92, 92); ctx.restore(); }
   const g = ctx.createLinearGradient(0, 950, 0, 987); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.55)');
@@ -3226,7 +3117,7 @@ function drawMapChrome(ctx, view, layersThumb){
   let dist = nice[0]; for(const n of nice){ if(n / mPerPx <= 110) dist = n; }
   const barW = dist / mPerPx;
   const distTxt = dist >= 1000 ? `${dist/1000} km` : `${dist} m`;
-  const items = [`Map data ©${new Date().getFullYear()} Google`, 'Thailand', 'Terms', 'Privacy', 'Send Product Feedback'];
+  const items = ['© OpenStreetMap contributors © CARTO', 'Thailand', 'Terms', 'Privacy', 'Send Product Feedback'];
   ctx.font = `400 12px ${RIMG_FONT}`;
   let totalW = items.reduce((a,t)=>a + ctx.measureText(t).width + 22, 0) + ctx.measureText(distTxt).width + 8 + barW + 20;
   const fx = W - totalW;
@@ -3289,34 +3180,25 @@ function drawRouteBubble(ctx, line, route, avoid){
   gText(ctx, t2, bx+10, by+34, 13, '#5e5e5e', 400);
 }
 
-async function fetchLayersThumb(view, apiKey){
+async function fetchLayersThumb(view){
   try{
-    const params = new URLSearchParams({ center:`${invMercY(view.cy).toFixed(6)},${invMercX(view.cx).toFixed(6)}`,
-      zoom:String(Math.max(1, view.zoom-2)), size:'92x92', scale:'1', maptype:'satellite', format:'jpg', key:apiKey });
-    const res = await fetch(`https://maps.googleapis.com/maps/api/staticmap?${params}`);
-    if(!res.ok || !(res.headers.get('content-type')||'').startsWith('image')) return null;
-    const blob = await res.blob();
-    return await new Promise(r=>{ const im = new Image(); im.onload=()=>r(im); im.onerror=()=>r(null); im.src = URL.createObjectURL(blob); });
+    const r = await withTimeout(renderTiles(view, Math.max(1, view.zoom-2), 92, 92, 1, SAT_TILE_URL), 15000, 'timeout');
+    return r.loaded ? r.canvas : null;
   }catch(e){ return null; }
 }
 
 async function buildRouteMapImage(pts, statusCb, dateStr){
   if(!pts.length) return null;
-  const apiKey = (localStorage.getItem(GMAPS_KEY_STORAGE)||'').trim();
-  if(!apiKey){
-    throw new Error('Maps is not available');
-  }
-
   let route = null;
   if(pts.length>1){
     if(statusCb) statusCb('Calculating route…');
-    route = await fetchGoogleDirections(pts);
+    route = await fetchRoute(pts);
   }
   const linePts = route ? route.path : [];
   const view = fitMapView(linePts.concat(pts), RIMG_MAP_W/2, RIMG_MAP_H/2);
 
   if(statusCb) statusCb('Loading map…');
-  const [base, layersThumb] = await Promise.all([fetchStaticMapBase(view, apiKey), fetchLayersThumb(view, apiKey)]);
+  const [base, layersThumb] = await Promise.all([fetchStaticMapBase(view), fetchLayersThumb(view)]);
 
   const canvas = document.createElement('canvas');
   canvas.width = RIMG_W; canvas.height = RIMG_H;
@@ -3417,7 +3299,7 @@ async function buildMileagePdf(month, onProgress){
 
     const pts = (r.points||[]).filter(p=>p!=null);
     if(pts.length){
-      // ไม่ fallback เป็นแผนที่อื่น — ถ้า Google Maps ใช้งานไม่ได้ จะ throw error ออกไปทันทีและหยุดสร้างไฟล์
+      // ไม่ fallback — ถ้าโหลดแผนที่/เส้นทางไม่ได้ จะ throw error ออกไปทันทีและหยุดสร้างไฟล์
       const mapResult = await buildRouteMapImage(
         pts,
         t=>{ if(onProgress) onProgress(`(${di+1}/${dates.length}) ${t}`); },
@@ -3505,13 +3387,8 @@ document.getElementById('exportAllBtn').addEventListener('click', async ()=>{
   }
 });
 
-// ---------- Google Maps API key (ตั้งค่าไว้ในโค้ด ไม่แสดงบนหน้าจอ) ----------
-(function initGmapsKey(){
-  // ตั้งค่าคีย์ให้อัตโนมัติ — ควรจำกัดคีย์ใน Google Cloud Console (HTTP referrer + เฉพาะ API ที่ใช้) เพราะคีย์ฝั่งเบราว์เซอร์มองเห็นได้จาก source เสมอ
-  if(localStorage.getItem(GMAPS_KEY_STORAGE) === null){
-    localStorage.setItem(GMAPS_KEY_STORAGE, 'AIzaSyDgJHTT1OjgQJatQbNtGFtEDnk97n-DFCE');
-  }
-})();
+// เวอร์ชันก่อนเก็บ Google Maps API key ไว้ในเครื่อง — ไม่ใช้แล้ว ลบทิ้ง
+try{ localStorage.removeItem('gmaps_api_key'); }catch(e){}
 
 // ---------- backup / restore ----------
 // ไฟล์สำรองใส่รูปจริงลงไปด้วย (รูปแบบเดิม) — เปิดกู้คืนได้ทั้งแอปเวอร์ชันเก่าและใหม่
