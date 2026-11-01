@@ -370,6 +370,13 @@
     background-repeat:no-repeat; background-position:right 12px center; background-size:18px;
   }
   .history-summary{ font-size:13px; color:var(--muted); margin:4px 2px 2px; font-variant-numeric:tabular-nums; }
+  .history-summary:empty{ display:none; }
+  .history-summary{ margin:2px 2px 4px; }
+  .history-summary .sum-days{ font-size:12px; margin-bottom:6px; }
+  .sum-grid{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 10px; padding-bottom:10px; border-bottom:0.5px solid var(--line); }
+  .sum-tile{ min-width:0; }
+  .sum-tile .k{ font-size:11px; color:var(--muted); }
+  .sum-tile .v{ font-size:14px; font-weight:600; color:var(--text); margin-top:1px; white-space:nowrap; }
   .icon-btn{ background:none; border:none; color:var(--accent); font-size:15px; padding:6px 8px; cursor:pointer; font-family:var(--sans); }
   .icon-btn.del{ color:var(--red); }
   .icon-btn.ico{ width:38px; height:38px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; }
@@ -2767,8 +2774,21 @@ function renderHistory(){
     list.innerHTML = `<div class="empty">No entries in ${escHtml(fmtMonthLabel(month))}</div>`;
     return;
   }
+  // ยอดสรุปของเดือน (Allowance, Distance, Taxi, Tolls, Bills) — allowance คิดแบบเดียวกับคอลัมน์ R ใน Excel (km × 1.2 × 5 ปัดทีละวัน), tolls = เฉพาะ "ผ่านทาง" ของวันที่มีบันทึก
   const total = dates.reduce((s,d)=>s+(dayDistance(db.days[d])||0), 0);
-  summary.textContent = `${dates.length} ${dates.length>1?'days':'day'} · ${total.toLocaleString(undefined,{maximumFractionDigits:1})} km`;
+  const allowance = round2(dates.reduce((s,d)=>{ const k = dayDistance(db.days[d]); return s + (k == null ? 0 : round2(k * 1.2 * 5)); }, 0));
+  const tolls = round2(dates.reduce((s,d)=>s + tollTotalForDay(d), 0));
+  const taxi = round2(dates.reduce((s,d)=>s + taxiTotal(db.days[d]), 0));
+  const bills = round2(dates.reduce((s,d)=>s + billsTotal(db.days[d]), 0));
+  const tile = (k, v)=>`<div class="sum-tile"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  summary.innerHTML = `<div class="sum-days">${dates.length} ${dates.length>1?'days':'day'}</div>
+    <div class="sum-grid">
+      ${tile('Allowance', '฿' + fmtBaht(allowance))}
+      ${tile('Distance', total.toLocaleString(undefined,{maximumFractionDigits:1}) + ' km')}
+      ${tile('Taxi', '฿' + fmtBaht(taxi))}
+      ${tile('Tolls', '฿' + fmtBaht(tolls))}
+      ${tile('Bills', '฿' + fmtBaht(bills))}
+    </div>`;
   list.innerHTML = dates.map(d=>{
     const r = db.days[d];
     const dist = dayDistance(r);
