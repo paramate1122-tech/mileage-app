@@ -371,12 +371,16 @@
   }
   .history-summary{ font-size:13px; color:var(--muted); margin:4px 2px 2px; font-variant-numeric:tabular-nums; }
   .history-summary:empty{ display:none; }
-  .history-summary{ margin:2px 2px 4px; }
-  .history-summary .sum-days{ font-size:12px; margin-bottom:6px; }
-  .sum-grid{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 10px; padding-bottom:10px; border-bottom:0.5px solid var(--line); }
-  .sum-tile{ min-width:0; }
-  .sum-tile .k{ font-size:11px; color:var(--muted); }
-  .sum-tile .v{ font-size:14px; font-weight:600; color:var(--text); margin-top:1px; white-space:nowrap; }
+  /* ยอดสรุปของเดือน: การ์ดเล็กเรียงแถวเดียว ปัดซ้าย–ขวาได้ — ใบแรก (ยอดรวม) สีเข้มเด่น ใบอื่นขอบบาง */
+  .history-summary{ margin:4px 0 2px; }
+  .sum-cards{ display:flex; gap:8px; overflow-x:auto; margin:0 -16px; padding:2px 16px 6px;
+    scroll-snap-type:x proximity; scroll-padding:0 16px; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; scrollbar-width:none; }
+  .sum-card{ flex:0 0 auto; min-width:96px; padding:10px 12px; border-radius:12px; border:0.5px solid var(--line); scroll-snap-align:start; }
+  .sum-card .k{ font-size:11px; color:var(--muted); white-space:nowrap; }
+  .sum-card .v{ font-size:16px; font-weight:600; color:var(--text); margin-top:3px; white-space:nowrap; }
+  .sum-card.main{ background:var(--text); border-color:transparent; }
+  .sum-card.main .k{ color:var(--panel); opacity:.7; }
+  .sum-card.main .v{ color:var(--panel); }
   .icon-btn{ background:none; border:none; color:var(--accent); font-size:15px; padding:6px 8px; cursor:pointer; font-family:var(--sans); }
   .icon-btn.del{ color:var(--red); }
   .icon-btn.ico{ width:38px; height:38px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; }
@@ -2774,15 +2778,16 @@ function renderHistory(){
     list.innerHTML = `<div class="empty">No entries in ${escHtml(fmtMonthLabel(month))}</div>`;
     return;
   }
-  // ยอดสรุปของเดือน (Allowance, Distance, Taxi, Tolls, Bills) — allowance คิดแบบเดียวกับคอลัมน์ R ใน Excel (km × 1.2 × 5 ปัดทีละวัน), tolls = เฉพาะ "ผ่านทาง" ของวันที่มีบันทึก
+  // ยอดสรุปของเดือน (Total, Allowance, Distance, Taxi, Tolls, Bills) — allowance คิดแบบเดียวกับคอลัมน์ R ใน Excel (km × 1.2 × 5 ปัดทีละวัน), tolls = เฉพาะ "ผ่านทาง" ของวันที่มีบันทึก
   const total = dates.reduce((s,d)=>s+(dayDistance(db.days[d])||0), 0);
   const allowance = round2(dates.reduce((s,d)=>{ const k = dayDistance(db.days[d]); return s + (k == null ? 0 : round2(k * 1.2 * 5)); }, 0));
   const tolls = round2(dates.reduce((s,d)=>s + tollTotalForDay(d), 0));
   const taxi = round2(dates.reduce((s,d)=>s + taxiTotal(db.days[d]), 0));
   const bills = round2(dates.reduce((s,d)=>s + billsTotal(db.days[d]), 0));
-  const tile = (k, v)=>`<div class="sum-tile"><div class="k">${k}</div><div class="v">${v}</div></div>`;
-  summary.innerHTML = `<div class="sum-days">${dates.length} ${dates.length>1?'days':'day'}</div>
-    <div class="sum-grid">
+  const claim = round2(allowance + taxi + tolls + bills); // ยอดที่เบิกได้ทั้งหมด
+  const tile = (k, v, cls)=>`<div class="sum-card${cls ? ' ' + cls : ''}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  summary.innerHTML = `<div class="sum-cards">
+      ${tile(`Total · ${dates.length} ${dates.length>1?'days':'day'}`, '฿' + fmtBaht(claim), 'main')}
       ${tile('Allowance', '฿' + fmtBaht(allowance))}
       ${tile('Distance', total.toLocaleString(undefined,{maximumFractionDigits:1}) + ' km')}
       ${tile('Taxi', '฿' + fmtBaht(taxi))}
