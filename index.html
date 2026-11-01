@@ -421,6 +421,42 @@
     touch-action:none; cursor:nwse-resize;
   }
 
+  /* Odometer | Taxi — สวิตช์เลือกกลุ่มการเดินทาง (แบบ segmented control ของ iOS) */
+  .seg{ position:relative; display:flex; padding:2px; margin:0 0 14px; border-radius:9px; background:var(--fill); }
+  .seg-pill{ position:absolute; top:2px; bottom:2px; left:2px; width:calc((100% - 4px) / 2); border-radius:7px;
+    background:var(--panel); box-shadow:0 3px 8px rgba(0,0,0,.12), 0 3px 1px rgba(0,0,0,.04);
+    transition:transform .35s cubic-bezier(.3,1.2,.45,1); }
+  :root[data-theme="dark"] .seg-pill{ background:#636366; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .seg-pill{ background:#636366; } }
+  .seg[data-i="1"] .seg-pill{ transform:translateX(100%); }
+  .seg button{ position:relative; z-index:1; flex:1; border:none; background:none; padding:8px 0; color:var(--text);
+    font-size:14px; font-weight:500; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; }
+  .seg button.active{ font-weight:600; }
+  .seg .has{ width:6px; height:6px; border-radius:50%; background:var(--accent); display:none; }
+  .seg .has.show{ display:inline-block; }
+  @media (prefers-reduced-motion: reduce){ .seg-pill{ transition:none; } }
+
+  /* รายการ Taxi / Other bills (เพิ่มทีละรายการ) */
+  .entry-row{ display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:0.5px solid var(--line); }
+  .entry-row:first-child{ padding-top:0; }
+  .entry-row:last-of-type{ border-bottom:none; }
+  .entry-fields{ flex:1; min-width:0; display:flex; flex-direction:column; gap:8px; }
+  .entry-fields label{ font-size:13px; color:var(--muted); }
+  .entry-input{ width:100%; background:var(--fill); border:none; border-radius:10px; outline:none;
+    color:var(--text); font-family:var(--sans); font-size:16px; padding:10px 12px; }
+  .entry-input::placeholder{ color:var(--muted); }
+  .entry-input.num{ font-variant-numeric:tabular-nums; -moz-appearance:textfield; appearance:textfield; }
+  .entry-input.num::-webkit-inner-spin-button, .entry-input.num::-webkit-outer-spin-button{ -webkit-appearance:none; margin:0; }
+  .bill-row .entry-fields{ flex-direction:row; }
+  .bill-row .bill-desc{ flex:1; min-width:0; }
+  .bill-row .bill-amt{ width:104px; flex-shrink:0; }
+  .entry-del{ width:30px; height:30px; flex-shrink:0; padding:0; border:none; background:none; color:var(--muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .entry-del svg{ width:20px; height:20px; }
+  .entry-del[hidden]{ display:none; }
+  .entry-add{ margin-top:12px; }
+  .entry-add svg{ width:18px; height:18px; }
+
   ::-webkit-scrollbar{ display:none; }
 </style>
 </head>
@@ -499,6 +535,14 @@
     <div class="hint" style="margin-top:0;">Search a project number from your Project list. Name, manager and nickname fill in automatically.</div>
   </div>
 
+  <!-- เลือกกลุ่มการเดินทาง: Odometer (+ Route) หรือ Taxi — ข้อมูลทั้งสองกลุ่มเก็บแยกกัน ใส่พร้อมกันหรืออย่างใดอย่างหนึ่งก็ได้ -->
+  <div class="seg" id="travelSeg" data-i="0" role="tablist" aria-label="Travel type">
+    <span class="seg-pill"></span>
+    <button type="button" class="active" data-travel="odo" role="tab" aria-selected="true">Odometer <span class="has" id="segOdoHas"></span></button>
+    <button type="button" data-travel="taxi" role="tab" aria-selected="false">Taxi <span class="has" id="segTaxiHas"></span></button>
+  </div>
+
+  <div id="groupOdo">
   <!-- ODOMETER CARD -->
   <div class="card">
     <h2>Odometer</h2>
@@ -564,6 +608,35 @@
     </div>
     <div class="hint">Tap the location arrow to save where you are now, or search for a place and pick it from the list. Tap a saved name to rename it.</div>
   </div>
+  </div>
+
+  <!-- TAXI CARD -->
+  <div id="groupTaxi" style="display:none;">
+  <div class="card">
+    <h2>Taxi</h2>
+    <div id="taxiList"></div>
+    <button type="button" class="btn btn-ghost btn-sm entry-add" id="addTaxiBtn" style="width:100%;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Add taxi
+    </button>
+    <div class="divider"></div>
+    <div class="stat-row"><span class="label">Taxi total</span><span class="value teal" id="taxiTotal">—</span></div>
+    <div class="hint">Enter each taxi ride’s cost and a photo of the bill. Costs go to column 滴滴出租 in the Reimburse Excel; bill photos go on that day’s page of the Mileage Record.</div>
+  </div>
+  </div>
+
+  <!-- OTHER BILLS CARD -->
+  <div class="card">
+    <h2>Other bills</h2>
+    <div id="billList"></div>
+    <button type="button" class="btn btn-ghost btn-sm entry-add" id="addBillBtn" style="width:100%;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Add bill
+    </button>
+    <div class="divider"></div>
+    <div class="stat-row"><span class="label">Bills total</span><span class="value teal" id="billTotal">—</span></div>
+    <div class="hint">Prices are added up into column 其他零星杂费; details are listed in the remarks column after the mileage, separated by commas.</div>
+  </div>
 
   <button class="btn btn-primary" id="saveTodayBtn" style="margin-bottom:24px;">Save</button>
   </div>
@@ -618,7 +691,7 @@
         </button>
       </div>
     </div>
-    <div class="hint">Reimburse Excel: fills the expense claim template — project, date, 泰铢, allowance (km × 1.2 × 5), tolls and start–end mileage. Mileage Record (PDF): one page per day with odometer photos and a Google Maps route image. Export all: Mileage Record PDF + Reimburse Excel + the month’s tolls PDF with matching toll rows highlighted, in one .zip. Data is stored only on this device — back up regularly.</div>
+    <div class="hint">Reimburse Excel: fills the expense claim template — project, date, 泰铢, taxi, allowance (km × 1.2 × 5), tolls, other bills and start–end mileage. Mileage Record (PDF): one page per day with odometer photos, a Google Maps route image and taxi bill photos. Export all: Mileage Record PDF + Reimburse Excel + the month’s tolls PDF with matching toll rows highlighted, in one .zip. Data is stored only on this device — back up regularly.</div>
   </div>
 
   </div>
@@ -826,8 +899,14 @@ function allRecs(){
   if(db.draft) recs.push(db.draft);
   return recs;
 }
+// ทุกช่องรูปของวันหนึ่ง: รูปไมล์ Start/End + รูปบิล Taxi ของแต่ละรายการ — คืน [{obj, field}]
+function recPhotoSlots(r){
+  const slots = [{ obj:r, field:'startPhoto' }, { obj:r, field:'endPhoto' }];
+  if(Array.isArray(r.taxi)) r.taxi.forEach(t=>{ if(t && typeof t === 'object') slots.push({ obj:t, field:'photo' }); });
+  return slots;
+}
 function hasInlinePhotos(){
-  return allRecs().some(r=>isInlinePhoto(r.startPhoto) || isInlinePhoto(r.endPhoto));
+  return allRecs().some(r=>recPhotoSlots(r).some(s=>isInlinePhoto(s.obj[s.field])));
 }
 
 // ย้ายรูปเก่าที่อยู่ใน localStorage ไป IndexedDB อย่างปลอดภัย:
@@ -839,7 +918,7 @@ function migratePhotosToIdb(){
   if(_migrating) return _migrating;
   const run = (async ()=>{
     if(!hasInlinePhotos()) return true;
-    const moves = []; // {rec, field, original, ref}
+    const moves = []; // {obj, field, original, ref}
     let swapped = false;
     try{
       const raw = localStorage.getItem(STORAGE_KEY) || JSON.stringify(db);
@@ -848,20 +927,20 @@ function migratePhotosToIdb(){
       if(!snap || snap.data !== raw) throw new Error('snapshot verify failed');
 
       for(const rec of allRecs()){
-        for(const field of ['startPhoto','endPhoto']){
-          const v = rec[field];
-          if(isInlinePhoto(v)) moves.push({ rec, field, original:v, ref: await putPhoto(v) });
+        for(const { obj, field } of recPhotoSlots(rec)){
+          const v = obj[field];
+          if(isInlinePhoto(v)) moves.push({ obj, field, original:v, ref: await putPhoto(v) });
         }
       }
       // ทุกรูปตรวจผ่านแล้ว -> เปลี่ยนเป็นป้ายชี้ (ข้ามช่องที่ผู้ใช้เปลี่ยนรูประหว่างย้าย)
-      moves.forEach(m=>{ if(m.rec[m.field] === m.original){ m.rec[m.field] = m.ref; m.done = true; } });
+      moves.forEach(m=>{ if(m.obj[m.field] === m.original){ m.obj[m.field] = m.ref; m.done = true; } });
       swapped = true;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
       return true;
     }catch(e){
       console.error('Photo migration failed — data left unchanged', e);
       // บันทึกไม่สำเร็จหลังเปลี่ยนป้ายชี้ -> ย้อนกลับเป็นรูปเดิม ให้ตรงกับที่บันทึกไว้ในเครื่อง
-      if(swapped) moves.forEach(m=>{ if(m.done && m.rec[m.field] === m.ref) m.rec[m.field] = m.original; });
+      if(swapped) moves.forEach(m=>{ if(m.done && m.obj[m.field] === m.ref) m.obj[m.field] = m.original; });
       return false;
     }
   })();
@@ -875,7 +954,7 @@ function migratePhotosToIdb(){
 async function cleanupOrphanPhotos(){
   if(hasInlinePhotos()) return;
   const used = new Set();
-  allRecs().forEach(r=>['startPhoto','endPhoto'].forEach(f=>{ if(isPhotoRef(r[f])) used.add(r[f].slice(4)); }));
+  allRecs().forEach(r=>recPhotoSlots(r).forEach(({ obj, field })=>{ if(isPhotoRef(obj[field])) used.add(obj[field].slice(4)); }));
   const cutoff = Date.now() - 3600*1000;
   await idbTx(PHOTO_STORE, 'readwrite', st=>new Promise(res=>{
     const cur = st.openCursor();
@@ -942,7 +1021,30 @@ function fmtDateLong(ds){ const dt = parseDate(ds); return `${_WD[dt.getDay()]},
 // วันที่ไม่มีข้อมูลอะไรเลย (เปิดดูเฉยๆ) ไม่ต้องแสดงในประวัติ/รายงาน
 function hasData(r){
   if(!r) return false;
-  return r.startKm != null || r.endKm != null || !!r.startPhoto || !!r.endPhoto || (r.points||[]).some(p=>p!=null) || hasProject(r);
+  return hasOdoData(r) || hasProject(r) || hasTaxi(r) || hasBills(r);
+}
+// ข้อมูลกลุ่ม Odometer + Route
+function hasOdoData(r){
+  return !!r && (r.startKm != null || r.endKm != null || !!r.startPhoto || !!r.endPhoto || (r.points||[]).some(p=>p!=null));
+}
+// ---------- Taxi / Other bills ----------
+// rec.taxi  = [{cost, photo}]   — cost ไปคอลัมน์ O (滴滴出租), รูปบิลไปหน้าของวันนั้นใน Mileage Record
+// rec.bills = [{desc, amount}]  — amount รวมกันไปคอลัมน์ AG (其他零星杂费), desc ต่อท้ายคอลัมน์ AI คั่นด้วย ", "
+// รายการว่าง (ไม่ได้กรอกอะไร) ไม่นับเป็นข้อมูล และถูกตัดทิ้งตอนกด Save
+const taxiFilled = t=>!!t && (t.cost != null || !!t.photo);
+const billFilled = b=>!!b && (b.amount != null || !!String(b.desc || '').trim());
+function taxiEntries(r){ return Array.isArray(r && r.taxi) ? r.taxi.filter(taxiFilled) : []; }
+function billEntries(r){ return Array.isArray(r && r.bills) ? r.bills.filter(billFilled) : []; }
+function hasTaxi(r){ return taxiEntries(r).length > 0; }
+function hasBills(r){ return billEntries(r).length > 0; }
+const round2 = n=>Math.round(n * 100) / 100;
+function taxiTotal(r){ return round2(taxiEntries(r).reduce((s, t)=>s + (Number(t.cost) || 0), 0)); }
+function billsTotal(r){ return round2(billEntries(r).reduce((s, b)=>s + (Number(b.amount) || 0), 0)); }
+function billsText(r){ return billEntries(r).map(b=>String(b.desc || '').trim()).filter(Boolean).join(', '); }
+function cleanEntries(r){
+  if(!r) return;
+  if(Array.isArray(r.taxi)){ r.taxi = r.taxi.filter(taxiFilled); if(!r.taxi.length) delete r.taxi; }
+  if(Array.isArray(r.bills)){ r.bills = r.bills.filter(billFilled); if(!r.bills.length) delete r.bills; }
 }
 function dataDates(){ return Object.keys(db.days).filter(d=>hasData(db.days[d])); }
 
@@ -1210,6 +1312,11 @@ function loadDayIntoForm(){
   setPhotoPreview('end', rec.endPhoto);
   updateStats();
   renderPointSlots();
+  renderTaxiList();
+  renderBillList();
+  // เปิดวันที่มีข้อมูลแค่กลุ่มเดียว -> แสดงกลุ่มนั้นเลย; มีทั้งคู่หรือยังไม่มีอะไร -> คงตัวเลือกเดิม
+  const o = hasOdoData(rec), t = hasTaxi(rec);
+  setTravelView(t && !o ? 'taxi' : o && !t ? 'odo' : travelView);
   refreshDateSelect();
 }
 const _previewToken = { start:0, end:0 };
@@ -1301,6 +1408,7 @@ function renderPointSlots(){
   });
   wrap.querySelectorAll('[data-search]').forEach(inp=>attachPlaceSearch(inp, parseInt(inp.dataset.search)));
   const filledCount = pts.filter(p=>p!=null).length;
+  syncTravelDots();
   document.getElementById('viewRouteBtn').disabled = filledCount < 1;
   document.getElementById('previewMapBtn').disabled = filledCount < 1;
 }
@@ -1625,6 +1733,7 @@ function cancelOdoJobs(rec, which){
   _odoJobs.forEach(j=>{ if(j.rec === rec && j.which === which){ j.cancelled = true; _odoJobs.delete(j); } });
 }
 function syncOdoClears(){
+  syncTravelDots();
   let any = false;
   ['start','end'].forEach(which=>{
     const filled = document.getElementById(which+'Km').value !== '' || !!_shownPhoto[which];
@@ -1887,6 +1996,209 @@ document.getElementById('clearPointsBtn').addEventListener('click', ()=>{
   document.getElementById('gpsLive').textContent = '';
 });
 
+// ---------- Odometer | Taxi switch ----------
+// เป็นแค่การเลือกว่าจะแสดงกลุ่มไหน — ข้อมูลของทั้งสองกลุ่มเก็บไว้ครบ ใส่พร้อมกันหรืออย่างใดอย่างหนึ่งก็ได้
+let travelView = 'odo';
+function formRecIfAny(){ return editingPast ? db.days[currentDate] : db.draft; } // อ่านอย่างเดียว ไม่สร้าง record ใหม่
+function syncTravelDots(){
+  const r = formRecIfAny();
+  const odo = hasOdoData(r) || !!_shownPhoto.start || !!_shownPhoto.end;
+  document.getElementById('segOdoHas').classList.toggle('show', odo);
+  document.getElementById('segTaxiHas').classList.toggle('show', hasTaxi(r));
+}
+function setTravelView(v, animate){
+  if(v !== 'odo' && v !== 'taxi') v = 'odo';
+  const changed = v !== travelView;
+  travelView = v;
+  const seg = document.getElementById('travelSeg');
+  seg.dataset.i = v === 'taxi' ? '1' : '0';
+  seg.querySelectorAll('[data-travel]').forEach(b=>{
+    const on = b.dataset.travel === v;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const odoEl = document.getElementById('groupOdo'), taxiEl = document.getElementById('groupTaxi');
+  odoEl.style.display = v === 'odo' ? '' : 'none';
+  taxiEl.style.display = v === 'taxi' ? '' : 'none';
+  if(animate && changed) animateIn(v === 'taxi' ? taxiEl : odoEl, v === 'taxi' ? 18 : -18, 0);
+  syncTravelDots();
+}
+document.querySelectorAll('#travelSeg [data-travel]').forEach(b=>b.addEventListener('click', ()=>setTravelView(b.dataset.travel, true)));
+
+// ---------- Taxi / Other bills: รายการที่เพิ่มทีละแถว (ค่าเริ่มต้นแสดง 1 แถว) ----------
+const ICON_X_SM = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>';
+const ICON_MINUS = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4 11H8a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2z"/></svg>';
+const parseMoney = v=>{ const n = parseFloat(v); return (v === '' || isNaN(n) || n < 0) ? null : n; };
+const fmtTHB = n=>n ? n.toLocaleString(undefined, {maximumFractionDigits:2}) + ' THB' : '—';
+// แถวที่ i ของรายการ (ถ้ายังไม่มีในข้อมูล เช่น แถวเริ่มต้นที่แสดงไว้ ให้สร้างตอนเริ่มกรอก)
+function ensureEntry(list, i){
+  const rec = curRec();
+  if(!Array.isArray(rec[list])) rec[list] = [];
+  const blank = list === 'taxi' ? ()=>({ cost:null, photo:null }) : ()=>({ desc:'', amount:null });
+  while(rec[list].length <= i) rec[list].push(blank());
+  return rec[list][i];
+}
+function visibleRows(list){
+  const arr = curRec()[list];
+  return Array.isArray(arr) && arr.length ? arr : [null];
+}
+function addEntryRow(list){
+  const n = visibleRows(list).length;
+  ensureEntry(list, n); // แถวที่แสดงอยู่ทั้งหมด + แถวใหม่ 1 แถว
+  saveDB();
+  if(list === 'taxi') renderTaxiList(); else renderBillList();
+  const inp = document.querySelector(list === 'taxi' ? `[data-taxi-cost="${n}"]` : `[data-bill-desc="${n}"]`);
+  if(inp) inp.focus();
+}
+function removeEntryRow(list, i){
+  const arr = curRec()[list];
+  if(Array.isArray(arr) && i < arr.length) arr.splice(i, 1);
+  if(Array.isArray(arr) && !arr.length) delete curRec()[list];
+  saveDB();
+  if(list === 'taxi') renderTaxiList(); else renderBillList();
+}
+
+let _taxiRenderToken = 0;
+function renderTaxiList(){
+  const rows = visibleRows('taxi');
+  const wrap = document.getElementById('taxiList');
+  const token = ++_taxiRenderToken;
+  wrap.innerHTML = rows.map((t, i)=>{
+    const canDel = rows.length > 1 || taxiFilled(t);
+    return `<div class="entry-row taxi-row">
+      <div class="entry-fields">
+        <label for="taxiCost${i}">Taxi ${rows.length > 1 ? i+1 + ' · ' : ''}cost (THB)</label>
+        <input class="entry-input num" type="number" inputmode="decimal" min="0" step="any" id="taxiCost${i}" data-taxi-cost="${i}" placeholder="0" value="${t && t.cost != null ? t.cost : ''}">
+      </div>
+      <div class="photo-slot">
+        <div class="photo-btn">
+          <span class="plus" data-taxi-plus="${i}">+</span>
+          <img data-taxi-img="${i}" style="display:none" alt="Taxi bill">
+          <input type="file" accept="image/*" data-taxi-file="${i}" aria-label="Taxi bill photo">
+        </div>
+        <button type="button" class="photo-clear" data-taxi-photo-clear="${i}" aria-label="Remove bill photo" title="Remove photo" ${t && t.photo ? '' : 'hidden'}>${ICON_X_SM}</button>
+        <div class="photo-caption">Bill</div>
+      </div>
+      <button type="button" class="entry-del" data-taxi-del="${i}" aria-label="Remove this taxi" title="Remove" ${canDel ? '' : 'hidden'}>${ICON_MINUS}</button>
+    </div>`;
+  }).join('');
+  rows.forEach((t, i)=>{
+    if(!t || !t.photo) return;
+    getPhotoData(t.photo).then(url=>{
+      if(token !== _taxiRenderToken || !url) return;
+      const img = wrap.querySelector(`[data-taxi-img="${i}"]`), plus = wrap.querySelector(`[data-taxi-plus="${i}"]`);
+      if(img){ img.src = url; img.style.display = 'block'; }
+      if(plus) plus.style.display = 'none';
+    }).catch(()=>{});
+  });
+  updateTaxiTotal();
+}
+function updateTaxiTotal(){
+  document.getElementById('taxiTotal').textContent = fmtTHB(taxiTotal(curRec()));
+  syncTravelDots();
+}
+(function initTaxiList(){
+  const wrap = document.getElementById('taxiList');
+  wrap.addEventListener('input', e=>{
+    const i = e.target.dataset.taxiCost;
+    if(i === undefined) return;
+    ensureEntry('taxi', parseInt(i)).cost = parseMoney(e.target.value);
+    saveDB(); updateTaxiTotal();
+    const del = wrap.querySelector(`[data-taxi-del="${i}"]`);
+    if(del && taxiFilled(curRec().taxi[i])) del.hidden = false;
+  });
+  wrap.addEventListener('change', async e=>{
+    const i = e.target.dataset.taxiFile;
+    if(i === undefined) return;
+    const file = e.target.files[0];
+    if(!file) return;
+    const entry = ensureEntry('taxi', parseInt(i)); // จำรายการไว้ก่อน (ถ้าเปลี่ยนวันระหว่างย่อรูป รูปยังไปลงวันเดิม)
+    let compressed;
+    try{ compressed = await compressImageFile(file, 1200, 0.8); }
+    catch(err){ dlg('Photo failed', 'Could not read this photo. Please try another one.'); return; }
+    // เก็บรูปไว้ในรายการทันที (กันรูปหายถ้ากด Save ระหว่างรอ) แล้วค่อยย้ายไปที่เก็บรูปในเครื่อง
+    entry.photo = compressed;
+    saveDB(); renderTaxiList();
+    putPhoto(compressed).then(ref=>{
+      if(entry.photo !== compressed) return; // ถูกเปลี่ยน/ลบไปแล้วระหว่างรอ
+      entry.photo = ref; saveDB();
+    }).catch(err=>console.error('putPhoto failed, taxi bill kept inline', err));
+  });
+  wrap.addEventListener('click', e=>{
+    const clr = e.target.closest('[data-taxi-photo-clear]');
+    if(clr){
+      const t = (curRec().taxi || [])[parseInt(clr.dataset.taxiPhotoClear)];
+      if(t){ t.photo = null; saveDB(); }
+      renderTaxiList();
+      return;
+    }
+    const del = e.target.closest('[data-taxi-del]');
+    if(del) removeEntryRow('taxi', parseInt(del.dataset.taxiDel));
+  });
+  document.getElementById('addTaxiBtn').addEventListener('click', ()=>addEntryRow('taxi'));
+})();
+
+function renderBillList(){
+  const rows = visibleRows('bills');
+  const wrap = document.getElementById('billList');
+  wrap.innerHTML = rows.map((b, i)=>{
+    const canDel = rows.length > 1 || billFilled(b);
+    return `<div class="entry-row bill-row">
+      <div class="entry-fields">
+        <input class="entry-input bill-desc" type="text" data-bill-desc="${i}" placeholder="Details" aria-label="Bill ${i+1} details" autocomplete="off" enterkeyhint="next" value="${escHtml(b ? b.desc || '' : '')}">
+        <input class="entry-input num bill-amt" type="number" inputmode="decimal" min="0" step="any" data-bill-amt="${i}" placeholder="Price" aria-label="Bill ${i+1} price" value="${b && b.amount != null ? b.amount : ''}">
+      </div>
+      <button type="button" class="entry-del" data-bill-del="${i}" aria-label="Remove this bill" title="Remove" ${canDel ? '' : 'hidden'}>${ICON_MINUS}</button>
+    </div>`;
+  }).join('');
+  updateBillTotal();
+}
+function updateBillTotal(){
+  document.getElementById('billTotal').textContent = fmtTHB(billsTotal(curRec()));
+}
+(function initBillList(){
+  const wrap = document.getElementById('billList');
+  wrap.addEventListener('input', e=>{
+    const d = e.target.dataset.billDesc, a = e.target.dataset.billAmt;
+    if(d === undefined && a === undefined) return;
+    const i = parseInt(d !== undefined ? d : a);
+    const b = ensureEntry('bills', i);
+    if(d !== undefined) b.desc = e.target.value; else b.amount = parseMoney(e.target.value);
+    saveDB(); updateBillTotal();
+    const del = wrap.querySelector(`[data-bill-del="${i}"]`);
+    if(del && billFilled(b)) del.hidden = false;
+  });
+  wrap.addEventListener('click', e=>{
+    const del = e.target.closest('[data-bill-del]');
+    if(del) removeEntryRow('bills', parseInt(del.dataset.billDel));
+  });
+  document.getElementById('addBillBtn').addEventListener('click', ()=>addEntryRow('bills'));
+})();
+
+// ย่อรูปเป็น JPEG (ประหยัดพื้นที่) — บิลใช้ความละเอียดสูงกว่ารูปไมล์นิดหน่อยให้อ่านตัวหนังสือออก
+function compressImageFile(file, maxW, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onerror = ()=>reject(reader.error || new Error('read failed'));
+    reader.onload = ev=>{
+      const img = new Image();
+      img.onerror = ()=>reject(new Error('not an image'));
+      img.onload = ()=>{
+        const scale = Math.min(1, maxW / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // รวม draft เข้ากับข้อมูลของวันนั้น (ถ้าวันนี้เคย Save ไปแล้ว เช่น เช้าใส่ไมล์เริ่ม เย็นใส่ไมล์จบ)
 function mergeIntoDay(ds, src){
   const rec = dayRec(ds);
@@ -1895,6 +2207,9 @@ function mergeIntoDay(ds, src){
   const existing = (rec.points||[]).filter(p=>p!=null);
   const added = (src.points||[]).filter(p=>p!=null);
   rec.points = existing.concat(added).slice(0,5);
+  // Taxi / Other bills: ต่อท้ายรายการเดิมของวันนั้น (ใช้ object เดิม — รูปบิลที่ยังบันทึกไม่เสร็จจะตามไปด้วย)
+  if(hasTaxi(src)) rec.taxi = taxiEntries(rec).concat(taxiEntries(src));
+  if(hasBills(src)) rec.bills = billEntries(rec).concat(billEntries(src));
   return existing.length + added.length > 5;
 }
 document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
@@ -1911,6 +2226,7 @@ document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
 
   if(editingPast){
     // วันเก่าแก้ตรงลงวันนั้นอยู่แล้ว — กด Save = เสร็จแล้วกลับไปหน้า History
+    cleanEntries(rec);
     if(!hasData(rec)) delete db.days[currentDate];
     saveDB();
     const label = fmtDateLong(currentDate);
@@ -1919,7 +2235,7 @@ document.getElementById('saveTodayBtn').addEventListener('click', ()=>{
     return;
   }
 
-  if(!hasData(rec)){ dlg('Nothing to save', 'Enter project information, your odometer, a photo or a stop first.'); return; }
+  if(!hasData(rec)){ dlg('Nothing to save', 'Enter project information, your odometer, a stop, a taxi or a bill first.'); return; }
   const today = todayStr();
   const overflow = mergeIntoDay(today, rec);
   db.draft = null;           // ล้างหน้า Today
@@ -2458,8 +2774,16 @@ function renderHistory(){
     const dist = dayDistance(r);
     const distTxt = dist==null ? '—' : dist.toLocaleString(undefined,{maximumFractionDigits:1})+' km';
     const ptsCount = (r.points||[]).filter(p=>p!=null).length;
+    const taxiN = taxiEntries(r).length, billN = billEntries(r).length;
+    const parts = [];
+    if(r.project && r.project.number) parts.push(escHtml(r.project.number));
+    if(dist != null || hasOdoData(r) || (!taxiN && !billN)) parts.push(distTxt);
+    if(ptsCount) parts.push(ptsCount+(ptsCount>1?' stops':' stop'));
+    if(taxiN) parts.push(`Taxi ฿${fmtBaht(taxiTotal(r))}`);
+    if(billN) parts.push((billN>1 ? billN+' bills' : '1 bill') + (billsTotal(r) ? ' ฿'+fmtBaht(billsTotal(r)) : ''));
+    if(tollTotalForDay(d)) parts.push('Tolls ฿'+fmtBaht(tollTotalForDay(d)));
     return `<div class="history-item" data-day="${d}">
-      <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${r.project && r.project.number ? escHtml(r.project.number)+' · ' : ''}${distTxt}${ptsCount ? ' · '+ptsCount+(ptsCount>1?' stops':' stop') : ''}${tollTotalForDay(d) ? ' · Tolls ฿'+fmtBaht(tollTotalForDay(d)) : ''}</span></div>
+      <div class="d">${escHtml(fmtDateLong(d))}<span class="dist">${parts.join(' · ')}</span></div>
       <div class="actions">
         <button class="icon-btn ico" data-copy="${d}" aria-label="Copy this day to another day" title="Copy">${ICON_COPY}</button>
         <button class="icon-btn ico" data-edit="${d}" aria-label="Edit" title="Edit">${ICON_EDIT}</button>
@@ -2740,14 +3064,21 @@ async function buildExpenseXlsx(month){
     r = setCellXml(r, 'F'+rn, m);
     r = setCellXml(r, 'G'+rn, dd);
     r = setCellXml(r, 'H'+rn, '泰铢');
+    // คอลัมน์ O (滴滴出租) = ค่า Taxi ทุกรายการของวันนั้นรวมกัน
+    const taxi = taxiTotal(rec);
+    r = setCellXml(r, 'O'+rn, taxi ? taxi : '');
     r = setCellXml(r, 'R'+rn, amount);
     // คอลัมน์ T (路桥费) = ค่าผ่านทางของวันนั้นจากไฟล์ tolls PDF (ไม่นับรายการเติมเงิน)
     const toll = tollTotalForDay(d);
     r = setCellXml(r, 'T'+rn, toll ? toll : '');
-    // คอลัมน์ AH (当日合计) เป็นสูตร SUM ของ template — อัปเดตค่าที่แสดงไว้ให้ตรงกับยอด
-    const dayTotal = Math.round(((amount === '' ? 0 : amount) + toll) * 100) / 100;
+    // คอลัมน์ AG (其他零星杂费) = ราคาของ Other bills ทุกรายการของวันนั้นรวมกัน
+    const bills = billsTotal(rec);
+    r = setCellXml(r, 'AG'+rn, bills ? bills : '');
+    // คอลัมน์ AH (当日合计) เป็นสูตร SUM(I:AG) ของ template — อัปเดตค่าที่แสดงไว้ให้ตรงกับยอด
+    const dayTotal = round2((amount === '' ? 0 : amount) + toll + taxi + bills);
     r = r.replace(new RegExp(`(<c r="AH${rn}"[^>]*>(?:<f[^>]*/>|<f[^>]*>[^<]*</f>))<v>[^<]*</v>`), `$1<v>${dayTotal}</v>`);
-    r = setCellXml(r, 'AI'+rn, odo);
+    // คอลัมน์ AI (备注) = mileage … ตามด้วยรายละเอียดของ Other bills คั่นด้วย ", "
+    r = setCellXml(r, 'AI'+rn, [odo, billsText(rec)].filter(Boolean).join(', '));
     rows[idx] = r;
   });
 
@@ -3423,7 +3754,37 @@ async function buildMileagePdf(month, onProgress){
         t=>{ if(onProgress) onProgress(`(${di+1}/${dates.length}) ${t}`); },
         d
       );
-      if(mapResult && mapResult.dataUrl) drawFit(page, await embed(mapResult.dataUrl), M, y, CW, y - M);
+      if(mapResult && mapResult.dataUrl) y -= drawFit(page, await embed(mapResult.dataUrl), M, y, CW, y - M) + 16;
+    }
+
+    // รูปบิล Taxi ของวันนั้น: เรียงแถวละ 3 รูปต่อจากแผนที่ — ที่ไม่พอให้ขึ้นหน้าใหม่ (หัวกระดาษเป็นวันที่เดิม)
+    const bills = [];
+    for(const t of taxiEntries(r)){
+      const data = t.photo ? await getPhotoData(t.photo).catch(()=>null) : null;
+      if(!data) continue;
+      try{ bills.push(await embed(data)); }catch(e){ console.error('embed taxi bill failed', e); }
+    }
+    if(bills.length){
+      const cols = 3, cellW = (CW - gap*(cols-1)) / cols, maxCellH = cellW * 1.5, minRowH = 150, labelH = 22;
+      let pg = page;
+      const newPage = ()=>{
+        pg = doc.addPage([PW, PH]);
+        y = PH - M;
+        pg.drawText(fmtDateShort(d) + ' (cont.)', { x:M, y:y - 16, size:16, font:bold, color:rgb(0.1, 0.1, 0.1) });
+        y -= 16 + 18;
+      };
+      if(y - M < labelH + minRowH) newPage();
+      pg.drawText('Taxi bills', { x:M, y:y - 11, size:11, font:bold, color:rgb(0.35, 0.35, 0.35) });
+      y -= labelH;
+      for(let k=0; k<bills.length; k += cols){
+        if(y - M < minRowH) newPage();
+        const cellH = Math.min(maxCellH, y - M);
+        let rowH = 0;
+        bills.slice(k, k + cols).forEach((img, c)=>{
+          rowH = Math.max(rowH, drawFit(pg, img, M + c*(cellW + gap), y, cellW, cellH));
+        });
+        y -= rowH + gap;
+      }
     }
   }
   return doc.save();
@@ -3519,8 +3880,8 @@ async function buildBackupJSON(){
   const copy = JSON.parse(JSON.stringify(db));
   const recs = Object.keys(copy.days).map(d=>copy.days[d]); if(copy.draft) recs.push(copy.draft);
   for(const r of recs){
-    for(const f of ['startPhoto','endPhoto']){
-      if(isPhotoRef(r[f])) r[f] = await getPhotoData(r[f]).catch(()=>null);
+    for(const { obj, field } of recPhotoSlots(r)){
+      if(isPhotoRef(obj[field])) obj[field] = await getPhotoData(obj[field]).catch(()=>null);
     }
   }
   // ไฟล์ tolls PDF ของแต่ละเดือนก็ใส่ในไฟล์สำรองด้วย (base64)
