@@ -371,9 +371,13 @@
   }
   .history-summary{ font-size:13px; color:var(--muted); margin:4px 2px 2px; font-variant-numeric:tabular-nums; }
   .history-summary:empty{ display:none; }
-  .history-summary{ margin:2px 2px 4px; }
+  /* แผงสรุปยอด: พื้นสีฟ้าอ่อน (ต่างจากปุ่ม/ช่องเลือกเดือนที่เป็นสีเทา) ให้แยกออกจากรายการวันชัดเจน */
+  .history-summary{ margin:4px 0 6px; padding:10px 14px 11px; border-radius:12px;
+    background:color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+  :root[data-theme="dark"] .history-summary{ background:color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .history-summary{ background:color-mix(in srgb, var(--accent) 16%, var(--panel)); } }
   .history-summary .sum-days{ font-size:12px; margin-bottom:6px; }
-  .sum-grid{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 10px; padding-bottom:10px; border-bottom:0.5px solid var(--line); }
+  .sum-grid{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 10px; }
   .sum-tile{ min-width:0; }
   .sum-tile .k{ font-size:11px; color:var(--muted); }
   .sum-tile .v{ font-size:14px; font-weight:600; color:var(--text); margin-top:1px; white-space:nowrap; }
