@@ -3757,7 +3757,8 @@ async function buildMileagePdf(month, onProgress){
       if(mapResult && mapResult.dataUrl) y -= drawFit(page, await embed(mapResult.dataUrl), M, y, CW, y - M) + 16;
     }
 
-    // รูปบิล Taxi ของวันนั้น: เรียงแถวละ 3 รูปต่อจากแผนที่ — ที่ไม่พอให้ขึ้นหน้าใหม่ (หัวกระดาษเป็นวันที่เดิม)
+    // รูปบิล Taxi ของวันนั้น: แถวละ 2 รูป กว้างเกือบครึ่งหน้า (เท่ารูปไมล์) ต่อจากแผนที่
+    // ใช้ความกว้างเต็มช่องเสมอ — แถวไหนสูงเกินที่เหลือให้ขึ้นหน้าใหม่ (หัวกระดาษเป็นวันที่เดิม)
     const bills = [];
     for(const t of taxiEntries(r)){
       const data = t.photo ? await getPhotoData(t.photo).catch(()=>null) : null;
@@ -3765,20 +3766,22 @@ async function buildMileagePdf(month, onProgress){
       try{ bills.push(await embed(data)); }catch(e){ console.error('embed taxi bill failed', e); }
     }
     if(bills.length){
-      const cols = 3, cellW = (CW - gap*(cols-1)) / cols, maxCellH = cellW * 1.5, minRowH = 150, labelH = 22;
+      const cols = 2, cellW = (CW - gap*(cols-1)) / cols, labelH = 22, headH = 16 + 18;
+      const fullH = PH - M*2 - headH; // ความสูงสูงสุดของรูปในหน้าใหม่ (ยาวกว่านี้จึงย่อตามความสูง)
+      const rowNeed = k=>Math.min(fullH, Math.max(...bills.slice(k, k + cols).map(img=>cellW * img.height / img.width)));
       let pg = page;
       const newPage = ()=>{
         pg = doc.addPage([PW, PH]);
         y = PH - M;
         pg.drawText(fmtDateShort(d) + ' (cont.)', { x:M, y:y - 16, size:16, font:bold, color:rgb(0.1, 0.1, 0.1) });
-        y -= 16 + 18;
+        y -= headH;
       };
-      if(y - M < labelH + minRowH) newPage();
+      if(y - M < labelH + rowNeed(0)) newPage();
       pg.drawText('Taxi bills', { x:M, y:y - 11, size:11, font:bold, color:rgb(0.35, 0.35, 0.35) });
       y -= labelH;
       for(let k=0; k<bills.length; k += cols){
-        if(y - M < minRowH) newPage();
-        const cellH = Math.min(maxCellH, y - M);
+        const cellH = rowNeed(k);
+        if(y - M < cellH) newPage();
         let rowH = 0;
         bills.slice(k, k + cols).forEach((img, c)=>{
           rowH = Math.max(rowH, drawFit(pg, img, M + c*(cellW + gap), y, cellW, cellH));
